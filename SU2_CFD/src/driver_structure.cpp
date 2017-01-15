@@ -2680,6 +2680,7 @@ void CDriver::Output(unsigned long ExtIter) {
     if (config_container[ZONE_0]->GetPlot_Section_Forces()) {
       output->SetForceSections(solver_container[ZONE_0][MESH_0][FLOW_SOL],
                                geometry_container[ZONE_0][MESH_0], config_container[ZONE_0], ExtIter);
+      
     }
     
     if (rank == MASTER_NODE) cout << "-------------------------------------------------------------------------" << endl << endl;

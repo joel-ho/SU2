@@ -162,6 +162,14 @@ public:
 	 * \brief Destructor of the class.
 	 */
 	virtual ~CGeometry(void);
+  
+  /*!
+   * \brief Gauss method for solving a linear system.
+   * \param[in] A - Matrix Ax = b.
+   * \param[in] rhs - Right hand side.
+   * \param[in] nVar - Number of variables.
+   */
+  void Gauss_Elimination(su2double** A, su2double* rhs, unsigned short nVar);
 
 	/*! 
 	 * \brief Get number of coordinates.
@@ -636,44 +644,60 @@ public:
   
   /*!
 	 * \brief A virtual member.
-	 * \param[in] config - Definition of the particular problem.
+   * \returns The maximum thickness of an airfoil.
 	 */
-  virtual su2double Compute_MaxThickness(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
+  virtual su2double Compute_MaxThickness(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
  
   /*!
 	 * \brief A virtual member.
-	 * \param[in] config - Definition of the particular problem.
 	 */
-  virtual su2double Compute_AoA(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
-
-  /*!
-	 * \brief A virtual member.
-	 * \param[in] config - Definition of the particular problem.
-	 */
-  virtual su2double Compute_Chord(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
-
-  /*!
-	 * \brief A virtual member.
-	 * \param[in] config - Definition of the particular problem.
-   * \param[in] original_surface - <code>TRUE</code> if this is the undeformed surface; otherwise <code>FALSE</code>.
-   * \returns The minimum value of the airfoil thickness.
-	 */
-	virtual su2double Compute_Thickness(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, su2double Location, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
-	
-	/*!
-	 * \brief A virtual member.
-	 * \param[in] config - Definition of the particular problem.
-   * \param[in] original_surface - <code>TRUE</code> if this is the undeformed surface; otherwise <code>FALSE</code>.
-   * \returns The total volume of the airfoil.
-	 */
-	virtual su2double Compute_Area(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
+  virtual su2double Compute_Twist(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
   
   /*!
+   * \brief A virtual member.
+   */
+  virtual void Compute_LeadingTrailing(su2double *LeadingEdge, su2double *TrailingEdge, su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double>
+                                       &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
+
+  /*!
 	 * \brief A virtual member.
-	 * \param[in] config - Definition of the particular problem.
-   * \param[in] original_surface - <code>TRUE</code> if this is the undeformed surface; otherwise <code>FALSE</code>.
-   * \returns The total volume of the 3D body.
 	 */
+  virtual su2double Compute_Chord(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
+
+  /*!
+	 * \brief A virtual member.
+   * \returns The minimum value of the airfoil thickness.
+	 */
+	virtual su2double Compute_Thickness(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, su2double Location, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
+	
+  /*!
+   * \brief A virtual member.
+   */
+  virtual su2double Compute_Area(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
+
+  /*!
+   * \brief A virtual member.
+   */
+  virtual su2double Compute_Dihedral(su2double *LeadingEdge_im1, su2double *TrailingEdge_im1,
+                                     su2double *LeadingEdge_i, su2double *TrailingEdge_i);
+  
+  /*!
+   * \brief A virtual member.
+   */
+  virtual su2double Compute_Curvature(su2double *LeadingEdge_im1, su2double *TrailingEdge_im1,
+                                      su2double *LeadingEdge_i, su2double *TrailingEdge_i,
+                                      su2double *LeadingEdge_ip1, su2double *TrailingEdge_ip1);
+
+  /*!
+   * \brief A virtual member.
+   */
+  virtual void Compute_Wing(CConfig *config, bool original_surface,
+                            su2double &Wing_Volume, su2double &Wing_MinMaxThickness, su2double &Wing_MaxChord, su2double &Wing_MinToC,
+                            su2double &Wing_MaxTwist, su2double &Wing_MaxCurvature, su2double &Wing_MaxDihedral);
+
+  /*!
+   * \brief A virtual member.
+   */
   virtual su2double Compute_Volume(CConfig *config, bool original_surface);
   
 	/*!
@@ -1410,38 +1434,53 @@ public:
   void SetBoundSensitivity(CConfig *config);
   
   /*!
-   * \brief Compute the sections of a wing.
-   * \param[in] config - Definition of the particular problem.
+   * \brief Compute the maximum thickness of an airfoil.
+   * \returns Maximum thickness at a particular seccion.
    */
-  su2double Compute_MaxThickness(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
+  su2double Compute_MaxThickness(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
   
   /*!
-   * \brief Compute the sections of a wing.
-   * \param[in] config - Definition of the particular problem.
+   * \brief Compute the twist of an airfoil.
+   * \returns Twist at a particular seccion.
    */
-  su2double Compute_AoA(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
+  su2double Compute_Twist(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
   
   /*!
-   * \brief Compute the sections of a wing.
-   * \param[in] config - Definition of the particular problem.
+   * \brief Compute the leading/trailing edge location of an airfoil.
    */
-  su2double Compute_Chord(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
+  void Compute_LeadingTrailing(su2double *LeadingEdge, su2double *TrailingEdge, su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil,
+                               vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
+
+  /*!
+   * \brief Compute the chord of an airfoil.
+   * \returns Chord of an airfoil.
+   */
+  su2double Compute_Chord(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
   
   /*!
-   * \brief Find the minimum thickness of the airfoil.
-   * \param[in] config - Definition of the particular problem.
-   * \param[in] original_surface - <code>TRUE</code> if this is the undeformed surface; otherwise <code>FALSE</code>.
-   * \returns The minimum value of the airfoil thickness.
+   * \brief Compute the thickness of an airfoil.
    */
-  su2double Compute_Thickness(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, su2double Location, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
+  su2double Compute_Thickness(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, su2double Location, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
   
   /*!
-   * \brief Find the total volume of the airfoil.
-   * \param[in] config - Definition of the particular problem.
-   * \param[in] original_surface - <code>TRUE</code> if this is the undeformed surface; otherwise <code>FALSE</code>.
-   * \returns The total volume of the airfoil.
+   * \brief Compute the area of an airfoil.
+   * \returns Area of an airfoil.
    */
-  su2double Compute_Area(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil, bool original_surface);
+  su2double Compute_Area(su2double *Plane_P0, su2double *Plane_Normal, unsigned short iSection, CConfig *config, vector<su2double> &Xcoord_Airfoil, vector<su2double> &Ycoord_Airfoil, vector<su2double> &Zcoord_Airfoil);
+  
+  /*!
+   * \brief Compute the dihedral of a wing.
+   * \returns Dihedral at a particular seccion.
+   */
+  su2double Compute_Dihedral(su2double *LeadingEdge_im1, su2double *TrailingEdge_im1,
+                             su2double *LeadingEdge_i, su2double *TrailingEdge_i);
+  
+  /*!
+   * \brief Compute the curvature of a wing.
+   */
+  su2double Compute_Curvature(su2double *LeadingEdge_im1, su2double *TrailingEdge_im1,
+                              su2double *LeadingEdge_i, su2double *TrailingEdge_i,
+                              su2double *LeadingEdge_ip1, su2double *TrailingEdge_ip1);
   
   /*!
    * \brief Find the internal volume of the 3D body.
@@ -1450,7 +1489,13 @@ public:
    * \returns The total volume of the 3D body.
    */
   su2double Compute_Volume(CConfig *config, bool original_surface);
-  
+
+  /*!
+   * \brief Evaluate geometrical parameters of a wing.
+   */
+  void Compute_Wing(CConfig *config, bool original_surface,
+                    su2double &Wing_Volume, su2double &Wing_MinMaxThickness, su2double &Wing_MaxChord, su2double &Wing_MinToC,
+                    su2double &Wing_MaxTwist, su2double &Wing_MaxCurvature, su2double &Wing_MaxDihedral);
 
   /*!
    * \brief Read the sensitivity from adjoint solution file and store it.

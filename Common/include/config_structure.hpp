@@ -381,6 +381,7 @@ private:
   unsigned short GeometryMode;			/*!< \brief Gemoetry mode (analysis or gradient computation). */
   unsigned short MGCycle;			/*!< \brief Kind of multigrid cycle. */
   unsigned short FinestMesh;		/*!< \brief Finest mesh for the full multigrid approach. */
+  unsigned short nAirfoilSections;                 /*!< \brief Number of stations. */
   unsigned short nFFD_Fix_IDir, nFFD_Fix_JDir, nFFD_Fix_KDir;                 /*!< \brief Number of planes fixed in the FFD. */
   unsigned short nMG_PreSmooth,                 /*!< \brief Number of MG pre-smooth parameters found in config file. */
   nMG_PostSmooth,                             /*!< \brief Number of MG post-smooth parameters found in config file. */
@@ -389,6 +390,7 @@ private:
   unsigned short *MG_PreSmooth,	/*!< \brief Multigrid Pre smoothing. */
   *MG_PostSmooth,					/*!< \brief Multigrid Post smoothing. */
   *MG_CorrecSmooth;					/*!< \brief Multigrid Jacobi implicit smoothing of the correction. */
+  su2double *AirfoilSections;	/*!< \brief Airfoil sections in wing slicing subroutine. */
   unsigned short Kind_Solver,	/*!< \brief Kind of solver Euler, NS, Continuous adjoint, etc.  */
   Kind_FluidModel,			/*!< \brief Kind of the Fluid Model: Ideal or Van der Walls, ... . */
   Kind_ViscosityModel,			/*!< \brief Kind of the Viscosity Model*/
@@ -471,7 +473,7 @@ private:
   su2double AdjTurb_Linear_Error;		/*!< \brief Min error of the turbulent adjoint linear solver for the implicit formulation. */
   su2double EntropyFix_Coeff;              /*!< \brief Entropy fix coefficient. */
   unsigned short AdjTurb_Linear_Iter;		/*!< \brief Min error of the turbulent adjoint linear solver for the implicit formulation. */
-  su2double *Section_Location;                  /*!< \brief Airfoil section limit. */
+  su2double *Section_VolumeBounds;                  /*!< \brief Bounds for internal volume evaluation. */
   unsigned short nSections,      /*!< \brief Number of section cuts to make when calculating internal volume. */
   nVolSections;               /*!< \brief Number of sections. */
   su2double* Kappa_Flow,           /*!< \brief Numerical dissipation coefficients for the flow equations. */
@@ -586,6 +588,7 @@ private:
   RefElemLength,				/*!< \brief Reference element length for computing the slope limiting epsilon. */
   RefSharpEdges,				/*!< \brief Reference coefficient for detecting sharp edges. */
   RefLengthMoment,			/*!< \brief Reference length for moment computation. */
+  SemiSpan,				/*!< \brief Reference semi-span. */
   *RefOriginMoment,           /*!< \brief Origin for moment computation. */
   *RefOriginMoment_X,      /*!< \brief X Origin for moment computation. */
   *RefOriginMoment_Y,      /*!< \brief Y Origin for moment computation. */
@@ -1320,10 +1323,10 @@ public:
   su2double GetHTP_Axis(unsigned short val_index);
   
   /*!
-   * \brief Get the value of the limits for the sections.
-   * \return Value of the limits for the sections.
+   * \brief Get the value of the bounds for the internal volume evaluation.
+   * \return Value of the bounds for the internal volume evaluation.
    */
-  su2double GetSection_Location(unsigned short val_var);
+  su2double GetSection_VolumeBounds(unsigned short val_var);
   
   /*!
    * \brief Get the value of the vector that connects the cartesian axis with a sherical or cylindrical one.
@@ -1660,6 +1663,12 @@ public:
    */
   su2double GetRefAreaCoeff(void);
   
+  /*!
+   * \brief Get the value of the semi span.
+   * \return Value of the semi span (mainly I/O).
+   */
+  su2double GetSemiSpan(void);
+
   /*!
    * \brief Get the wave speed.
    * \return Value of the wave speed.
@@ -2823,6 +2832,13 @@ public:
    */
   unsigned short GetMG_PreSmooth(unsigned short val_mesh);
   
+  /*!
+   * \brief Get the airfoil sections in the slicing process.
+   * \param[in] val_section - Index of the section.
+   * \return Coordinate of the airfoil to slice.
+   */
+  su2double GetAirfoilSections(unsigned short val_section);
+
   /*!
    * \brief Get the number of post-smoothings in a multigrid strategy.
    * \param[in] val_mesh - Index of the grid.

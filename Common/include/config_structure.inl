@@ -291,6 +291,8 @@ inline bool CConfig::GetExtraOutput(void) { return ExtraOutput; }
 
 inline su2double CConfig::GetRefAreaCoeff(void) { return RefAreaCoeff; }
 
+inline su2double CConfig::GetSemiSpan(void) { return SemiSpan; }
+
 inline su2double CConfig::GetWaveSpeed(void) { return Wave_Speed; }
 
 inline su2double CConfig::GetThermalDiffusivity(void) { return Thermal_Diffusivity; }
@@ -333,7 +335,7 @@ inline su2double CConfig::GetMach(void) { return Mach; }
 
 inline su2double CConfig::GetGamma(void) { return Gamma; }
 
-inline su2double CConfig::GetSection_Location(unsigned short val_var) { return Section_Location[val_var]; }
+inline su2double CConfig::GetSection_VolumeBounds(unsigned short val_var) { return Section_VolumeBounds[val_var]; }
 
 inline su2double CConfig::GetFFD_Axis(unsigned short val_var) { return FFD_Axis[val_var]; }
 
@@ -609,6 +611,8 @@ inline unsigned short CConfig::GetFFD_CoordSystem(void) { return FFD_CoordSystem
 inline unsigned short CConfig::GetnRKStep(void) { return nRKStep; }
 
 inline su2double CConfig::Get_Alpha_RKStep(unsigned short val_step) { return RK_Alpha_Step[val_step]; }
+
+inline su2double CConfig::GetAirfoilSections(unsigned short val_section) { return AirfoilSections[val_section]; }
 
 inline unsigned short CConfig::GetnFFD_Fix_IDir(void) { return nFFD_Fix_IDir; }
 
