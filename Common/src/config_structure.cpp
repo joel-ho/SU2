@@ -403,8 +403,8 @@ void CConfig::SetPointersNull(void) {
   Weight_ObjFunc = NULL;
 
   /*--- Moving mesh pointers ---*/
-
-  Kind_GridMovement	  = NULL;
+ 
+  Kind_GridMovement	  = NULL;    AirfoilSections     = NULL;
   Motion_Origin_X     = NULL;    Motion_Origin_Y     = NULL;    Motion_Origin_Z	    = NULL;
   Translation_Rate_X  = NULL;    Translation_Rate_Y  = NULL;    Translation_Rate_Z  = NULL;
   Rotation_Rate_X     = NULL;    Rotation_Rate_Y     = NULL;    Rotation_Rate_Z     = NULL;
@@ -5165,7 +5165,11 @@ CConfig::~CConfig(void) {
 
   /*--- Free memory for unspecified grid motion parameters ---*/
 
- if (Kind_GridMovement != NULL) delete [] Kind_GridMovement;
+  if (Kind_GridMovement != NULL) delete [] Kind_GridMovement;
+  
+  /*--- Free memory for airfoil seccion cutter ---*/
+
+  if (AirfoilSections != NULL) delete [] AirfoilSections;
 
   /*--- motion origin: ---*/
   
