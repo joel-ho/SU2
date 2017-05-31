@@ -255,3 +255,36 @@ public:
   void Set_TransferCoeff(CConfig **config);
 
 };
+
+/*!
+ * \brief Radial basis function interpolation
+ */
+class CRadialBasisFunction : public CInterpolator {
+public:
+
+  /*!
+   * \brief Constructor of the class.
+   */
+  CRadialBasisFunction(void);
+
+  /*!
+   * \brief Constructor of the class.
+   * \param[in] geometry - Geometrical definition of the problem.
+   * \param[in] config - Definition of the particular problem.
+   * \param[in] iZone - index of the donor zone
+   * \param[in] jZone - index of the target zone
+   */
+  CRadialBasisFunction(CGeometry ***geometry_container, CConfig **config, unsigned int iZone, unsigned int jZone);
+
+  /*!
+   * \brief Destructor of the class.
+   */
+  ~CRadialBasisFunction(void);
+
+  /*!
+   * \brief Set up transfer matrix defining relation between two meshes
+   * \param[in] config - Definition of the particular problem.
+   */
+  void Set_TransferCoeff(CConfig **config);
+
+};
