@@ -286,5 +286,53 @@ public:
    * \param[in] config - Definition of the particular problem.
    */
   void Set_TransferCoeff(CConfig **config);
+  
+  inline unsigned long Get_PIdxWrite(unsigned long iPoint, unsigned int nDim, int iDim){return iPoint*(nDim+1)+iDim+1;}
 
+  inline unsigned long GetPIdxRead(unsigned int row, unsigned long col, unsigned int nDim) {return col*(nDim+1)+row;}
+
+  inline unsigned long Get_BufferCoordIdx(unsigned long iPoint, unsigned int nDim, unsigned int iDim){return iPoint*nDim+iDim;}
+
+};
+
+class SymmMatrix{
+
+	private:
+		
+		/*--- Variables ---*/
+		bool initialized, inversed;
+		int sz, num_val, decomposed, num_del_col;
+		int *deleted_col;
+		double *val_vec, *decompose_vec, *inv_val_vec;
+		
+		/*--- Methods ---*/
+		int CalcIdx(int i, int j);
+
+	public:
+	
+		/*--- Methods ---*/
+		SymmMatrix();
+		~SymmMatrix();
+		
+		void Initialize(int N);
+		
+		void Write(int i, int j, double val);
+		
+		void LDLT(bool overwrite);
+		void Chol(bool overwrite);
+		void CalcInv(bool overwrite);
+		
+		double Read(int i, int j);
+		double ReadL(int i, int j);
+		double ReadD(int i);
+		double ReadInv(int i,int j);
+		
+		void Print();
+		void PrintInv();
+		void CheckInv();
+		
+		void DeleteCol(int i);
+		
+		void VecMatMult(double *v);
+		
 };

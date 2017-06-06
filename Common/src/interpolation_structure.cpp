@@ -1481,6 +1481,157 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     /*-- Collect coordinates, global points, and normal vectors ---*/
     Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim );
 
+	/*--- EXPERIMENT_START ---*/
+	cout << "\nEXPERIMENT_START" << endl;
+	
+	SymmMatrix donorR;
+//	SymmMatrix donorM;
+//	su2double donorP;
+	su2double rbfCoord_i[nDim], rbfCoord_j[nDim];
+	su2double rbfRadius=0.008, rbfVal, interfaceCoordLimits[nDim*2];
+	su2double interfaceCoordTol=1e-12;
+	bool interpCoord[nDim];
+	
+	// Fill M matrix and P vector
+	donorR.Initialize(nVertexDonor+nDim+1);
+//	donorM.Initialize(nVertexDonor);
+//	donorP = new su2double [nVertexDonor*(nDim+1)];
+	
+	for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
+
+		// Write polynomial terms to P vector
+//		donorP[Get_PIdxWrite(rbf_i, nDim, -1)] = 1.0;
+		donorR.Write(rbf_i, nVertexDonor, 1.0);
+		for (iDim = 0; iDim < nDim; iDim++) {
+			rbfCoord_i[iDim] = Buffer_Receive_Coord[Get_BufferCoordIdx(rbf_i, nDim, iDim)];
+			
+			donorR.Write(rbf_i, nVertexDonor+iDim+1, rbfCoord_i[iDim]);
+			
+//			donorP[Get_PIdxWrite(rbf_i, nDim, iDim)] = rbfCoord_i[iDim];
+			
+			// Get coordinates limit on interface
+			if (rbf_i==0){
+				interfaceCoordLimits[iDim*nDim] = rbfCoord_i[iDim];
+				interfaceCoordLimits[iDim*nDim+1] = rbfCoord_i[iDim];
+				interpCoord[iDim] = true;
+			}
+			else {
+				interfaceCoordLimits[iDim*nDim] = \
+				(rbfCoord_i[iDim]<interfaceCoordLimits[iDim*nDim]) ? \
+				rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim];
+				
+				interfaceCoordLimits[iDim*nDim+1] = \
+				(rbfCoord_i[iDim]>interfaceCoordLimits[iDim*nDim+1]) ? \
+				rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim+1];
+			}
+			
+	    }
+	
+		for (unsigned long rbf_j=rbf_i; rbf_j<nVertexDonor; rbf_j++) {
+		
+			// Calculate radial distance
+			rbfVal = 0.0;
+			for (iDim = 0; iDim < nDim; iDim++) {
+		      rbfCoord_j[iDim] = Buffer_Receive_Coord[Get_BufferCoordIdx(rbf_j, nDim, iDim)];
+		      rbfVal += pow(rbfCoord_j[iDim] - rbfCoord_i[iDim], 2.0);
+		      
+		    }
+		    rbfVal = sqrt(rbfVal);
+		    
+		    // Calculate basis function
+		    rbfVal /= rbfRadius;
+		    if (rbfVal < 1) {rbfVal = pow((1-rbfVal), 4)*(4*rbfVal + 1);}
+		    else {rbfVal = 0;}
+		    
+		    // Write to R matrix
+//			donorM.Write(rbf_i, rbf_j, rbfVal);
+			donorR.Write(rbf_i, rbf_j, rbfVal);
+			
+		}
+	}
+	
+	// Check if there are any common coordinates among all the donor points
+	for (iDim=0; iDim<nDim; iDim++) {
+		if ((interfaceCoordLimits[iDim*nDim+1]-interfaceCoordLimits[iDim*nDim]) < interfaceCoordTol) {
+			interpCoord[iDim] = false;
+			donorR.DeleteCol(nVertexDonor+iDim+1);
+		}
+	}
+	
+	donorR.CalcInv(true);
+	
+	
+//	donorM.Chol(false);
+//	donorM.CalcInv(false);
+//	
+//	/*--- Check donorM ---*/
+//	cout << "donorM" << endl;
+//	cout << "[ " << endl;
+//	for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
+//	
+//		cout << "[ ";
+//		for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
+//		
+//			cout << donorM.Read(rbf_i, rbf_j) << ", ";
+//			
+//		}
+//		cout << " ]," << endl;
+//	}
+//	cout << " ]" << endl;
+//	
+//	/*--- Check inverse calculation ---*/
+//	cout << "donorM times its inverse" << endl;
+//	cout << "[ " << endl;
+//	for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
+//	
+//		cout << "[ ";
+//		for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
+//		
+//			rbfVal = 0.0;
+//			for (unsigned long rbf_k=0; rbf_k<nVertexDonor; rbf_k++) {
+//			
+//				rbfVal += donorM.Read(rbf_i, rbf_k)*donorM.ReadInv(rbf_k, rbf_j);
+//			
+//			}
+//			cout << rbfVal << ", ";
+//			
+//		}
+//		cout << " ]," << endl;
+//	}
+//	cout << " ]" << endl;
+	
+	
+//	for (iProcessor = 0; iProcessor < nProcessor; iProcessor++) {
+//      for (jVertex = 0; jVertex < MaxLocalVertex_Donor; jVertex++) {
+//        
+//        Global_Point_Donor = iProcessor*MaxLocalVertex_Donor+jVertex;
+
+//		pGlobalPoint = Buffer_Receive_GlobalPoint[Global_Point_Donor];
+//		
+//		cout << pGlobalPoint << endl;
+
+//        /*--- Compute the dist ---*/
+//        dist = 0.0; 
+//        for (iDim = 0; iDim < nDim; iDim++) {
+//          Coord_j[iDim] = Buffer_Receive_Coord[ Global_Point_Donor*nDim+iDim];
+//          dist += pow(Coord_j[iDim] - Coord_i[iDim], 2.0);
+//        }
+
+//        if (dist < mindist) {
+//          mindist = dist; pProcessor = iProcessor; pGlobalPoint = Buffer_Receive_GlobalPoint[Global_Point_Donor];
+//        }
+
+//        if (dist == 0.0) break;
+//      }
+//	}
+	
+//	cout << endl;
+	
+	cout << "EXPERIMENT_END\n" << endl;
+	/*--- EXPERIMENT_END ---*/
+
+
+
     /*--- Compute the closest point to a Near-Field boundary point ---*/
     maxdist = 0.0;
 
@@ -1545,4 +1696,433 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
   if (rank == MASTER_NODE) 
     delete [] Buffer_Recv_mark;
   #endif
+}
+
+
+/*--- Symmetric matrix class definitions ---*/
+SymmMatrix::SymmMatrix()
+{
+	initialized = false;
+	inversed = false;
+	
+	decomposed = 0;
+	num_del_col = 0;
+	
+	val_vec = NULL;
+	decompose_vec = NULL;
+	inv_val_vec = NULL;
+	deleted_col = NULL;
+}
+
+SymmMatrix::~SymmMatrix()
+{
+	delete [] val_vec;
+	delete [] decompose_vec;
+	delete [] inv_val_vec;
+	delete [] deleted_col;
+}
+
+void SymmMatrix::Initialize(int N)
+{
+	int i;
+	
+	sz = N;	
+	num_val = sz*(sz+1)/2;
+	val_vec = new double [num_val];
+	for (i=0; i<num_val; i++){val_vec[i] = 0.0;}
+	
+	initialized = true;
+}
+
+int SymmMatrix::CalcIdx(int i, int j)
+{	
+	if (deleted_col) {
+		for (int k=num_del_col-1; k>=0; k--) {
+			if (i>=deleted_col[k]) {
+				i++;
+			}
+			if (j>=deleted_col[k]) {
+				j++;
+			}
+		}
+	}
+
+	if (i >= j) {
+		return i + (2*(sz+num_del_col)-j-1)*j/2;
+	}
+	else {
+		return j + (2*(sz+num_del_col)-i-1)*i/2;
+	}
+}
+
+void SymmMatrix::Write(int i, int j, double val)
+{
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	else if (i<0 || i>=sz || j<0 || j>=sz) {
+		throw out_of_range("Index to write to matrix out of bounds.");
+	}
+	val_vec[CalcIdx(i, j)] = val;
+}
+
+void SymmMatrix::LDLT(bool overwrite)
+{
+	int i, j, k;
+	double *vec, sum;
+	
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	
+	/*--- Point to correct vector ---*/
+	if (overwrite) {
+		vec = val_vec;
+	}
+	else {
+		decompose_vec = new double [num_val];
+		for (i=0; i<num_val; i++){decompose_vec[i] = val_vec[i];}
+		vec = decompose_vec;
+	}
+	
+	/*--- Decompose matrix ---*/
+	for (j=0; j<sz; j++) {
+	
+		/*--- Calculate diagonal terms ---*/
+		sum = 0.0;
+		for (k=0; k<j; k++) { 
+			if (k<j) {
+				sum += vec[CalcIdx(j, k)]*vec[CalcIdx(j, k)]*vec[CalcIdx(k, k)];
+			}
+		}
+		vec[CalcIdx(j, j)] -= sum;
+		
+		/*--- Calculate lower triangular terms ---*/
+		for (i=j+1; i<sz; i++) {
+			sum = 0.0;		
+			for (k=0; k<j; k++) {
+				if (k<j) {
+					sum += vec[CalcIdx(i, k)]*vec[CalcIdx(k, k)]*vec[CalcIdx(j, k)];
+				}
+			}
+			vec[CalcIdx(i, j)] -= sum;
+			vec[CalcIdx(i, j)] /= vec[CalcIdx(j, j)];
+		}
+	}
+	
+	decomposed = 1;
+	
+}
+
+void SymmMatrix::Chol(bool overwrite)
+{
+	int i, j, k;
+	double *vec, sum;
+	
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	
+	/*--- Point to correct vector ---*/
+	if (overwrite) {
+		vec = val_vec;
+	}
+	else {
+		decompose_vec = new double [num_val];
+		for (i=0; i<num_val; i++){decompose_vec[i] = val_vec[i];}
+		vec = decompose_vec;
+	}
+	
+	/*--- Decompose matrix ---*/
+	for (j=0; j<sz; j++) {
+		for (i=j; i<sz; i++) {
+		
+			sum = 0.0;
+			for (k=0; k<j; k++) {
+				if (k<j) {
+					sum += vec[CalcIdx(i, k)]*vec[CalcIdx(j, k)];
+				}
+			}
+			
+			if (i==j) {
+				vec[CalcIdx(i, i)] = sqrt(vec[CalcIdx(i, i)] - sum);
+			}
+			else {
+				vec[CalcIdx(i, j)] = (vec[CalcIdx(i, j)] - sum)/vec[CalcIdx(j, j)];
+			}
+			
+		}
+	}
+	
+	decomposed = 2;
+	
+}
+
+void SymmMatrix::CalcInv(bool overwrite)
+{
+	int i, j, k, shift;
+	double *vec, sum;
+	
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	
+	/*--- Initialize inverse matrix ---*/
+	inv_val_vec = new double [num_val];
+	for (i=0; i<num_val; i++){inv_val_vec[i] = 0.0;}
+	
+	/*--- Decompose matrix if not already done ---*/
+	if (decomposed == 0) {LDLT(overwrite);}
+	
+	/*--- Point to correct vector ---*/
+	if (decompose_vec) { vec = decompose_vec; }
+	else { vec = val_vec; }
+	
+	/*---        Calculate L inverse       ---*/
+	/*--- Solve smaller and smaller system ---*/
+	for (j=sz; j>0; j--) {
+		
+		shift = sz-j;
+		inv_val_vec[CalcIdx(shift, shift)] = 1.0;
+		
+		/*--- Forward substitution ---*/
+		for (i=shift; i<sz; i++) {
+		
+			if (i==shift) {
+				inv_val_vec[CalcIdx(i, i)] = 1/ReadL(i, i);
+			}
+			else {
+				sum = 0;
+				for (k=shift; k<i; k++) {
+					if (k<i) {
+						sum += vec[CalcIdx(i, k)]*inv_val_vec[CalcIdx(k, shift)];
+					}
+				}
+				inv_val_vec[CalcIdx(i, shift)] = -sum/ReadL(i, i);
+			}
+			
+		}
+		
+	} // L inverse in inv_val_vec (checked results and are correct)
+	
+	/*--- Multiply inversed matrices ---*/
+	for (j=0; j<sz; j++) {
+		for (i=j; i<sz; i++) {
+		
+			sum = 0.0;
+			for (k=i; k<sz; k++) {
+				sum += inv_val_vec[CalcIdx(k, i)]*inv_val_vec[CalcIdx(k, j)]/ReadD(k);
+			}
+			vec[CalcIdx(i, j)] = sum;
+			
+		}
+	}
+	
+	/*--- Memory management ---*/
+	delete [] inv_val_vec;
+	inv_val_vec = NULL;
+	
+	if (decompose_vec && ! overwrite) {
+		inv_val_vec = decompose_vec;
+	}
+	else if (decompose_vec && overwrite) {
+		delete [] val_vec;
+		val_vec = decompose_vec;
+	}
+	
+	decompose_vec = NULL;
+	decomposed = 0;
+	
+	inversed = true;
+	
+}
+
+double SymmMatrix::Read(int i, int j)
+{
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	else if (i<0 || i>=sz || j<0 || j>=sz) {
+		throw out_of_range("Index to read from matrix out of bounds.");
+	}
+	return val_vec[CalcIdx(i, j)];
+}
+
+double SymmMatrix::ReadL(int i, int j)
+{
+	double *p;
+	
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	else if (i<0 || i>=sz || j<0 || j>=sz) {
+		throw out_of_range("Index to read from L matrix out of bounds.");
+	}
+
+	if (decomposed == 0) {
+		throw invalid_argument("Matrix not decomposed yet or results have been deleted.");
+	}
+
+	else {
+	
+		if (decompose_vec){ p = decompose_vec; }
+		else {p = val_vec;}
+		
+		if (decomposed == 1) {
+			if (i>j){ return p[CalcIdx(i, j)]; }
+			else if (i==j) { return 1.0; }
+			else { return 0.0; }
+		}
+
+		else if (decomposed == 2) {
+			if (i>=j){ return p[CalcIdx(i, j)];}
+			else { return 0.0; }
+		}
+	}
+	
+}
+
+double SymmMatrix::ReadD(int i)
+{
+	double *p;
+
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	else if (i<0 || i>=sz) {
+		throw out_of_range("Index to read from D vector out of bounds.");
+	}
+
+	if (decomposed == 1) {
+		if (decompose_vec){ p = decompose_vec; }
+		else {p = val_vec;}
+		
+		return p[CalcIdx(i, i)];
+	}
+	
+	else if (decomposed == 2) {return 1.0;}
+	
+	else { throw invalid_argument("Matrix not decomposed yet or results have been deleted."); }
+	
+}
+
+double SymmMatrix::ReadInv(int i, int j)
+{
+	double *p;
+
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	else if (i<0 || i>=sz || j<0 || j>=sz) {
+		throw out_of_range("Index to read from matrix out of bounds."); 
+	}
+
+	if (inversed) {
+		if (inv_val_vec) { p = inv_val_vec; }
+		else { p = val_vec; }
+		
+		return p[CalcIdx(i, j)];
+	}
+	
+	else { throw invalid_argument("Matrix inverse not calculated yet."); }
+	
+}
+
+void SymmMatrix::DeleteCol(int i)
+{
+
+	int *tmp_deleted_col;
+
+	if (i>=sz) {throw out_of_range("Index for deleting column out of bounds.");}
+
+	if (! deleted_col){
+		deleted_col = new int [1];
+		deleted_col[0] = i;
+	}
+	else{
+	
+		tmp_deleted_col = new int [num_del_col];
+		for (int j=0; j<num_del_col; j++) {
+			tmp_deleted_col[j] = deleted_col[j];
+		}
+		
+		delete [] deleted_col;
+		deleted_col = new int [num_del_col+1];
+		
+		for (int j=0; j<num_del_col; j++) {
+			deleted_col[j] = tmp_deleted_col[j];
+		}
+		deleted_col[num_del_col] = i;
+		
+		delete [] tmp_deleted_col;
+		
+	}
+	
+	num_del_col++;
+	sz--;
+}
+
+void SymmMatrix::VecMatMult(double *v)
+{
+	double *tmp_res;
+	
+	tmp_res = new double [sz];
+	for (int i=0; i<sz; i++) {
+		tmp_res[i] = 0.0;
+		for (int k=0; k<sz; k++) {
+			tmp_res[i] += v[k]*Read(k, i);
+		}
+	}
+	
+	for (int i=0; i<sz; i++) {v[i] = tmp_res[i];}
+	delete [] tmp_res;
+	
+}
+
+void SymmMatrix::Print()
+{
+	cout << "Matrix values:" << endl;
+	cout << "["<< endl;
+	for (int i=0; i<sz; i++) {
+		cout << "[ ";
+		for (int j=0; j<sz; j++) {
+			cout << Read(i, j) << ", ";
+		}
+		cout << " ], " << endl;
+	}
+	cout << "]" << endl;
+
+}
+
+void SymmMatrix::PrintInv()
+{
+	cout << "Matrix inverse values:" << endl;
+	cout << "["<< endl;
+	for (int i=0; i<sz; i++) {
+		cout << "[ ";
+		for (int j=0; j<sz; j++) {
+			cout << ReadInv(i, j) << ", ";
+		}
+		cout << " ], " << endl;
+	}
+	cout << "]" << endl;
+
+}
+
+void SymmMatrix::CheckInv()
+{
+	double sum;
+	
+	cout << "Multiplying matrix by its inverse:" << endl;
+	cout << "["<< endl;
+	for (int i=0; i<sz; i++) {
+		cout << "[ ";
+		for (int j=0; j<sz; j++) {
+			sum = 0.0;
+			for (int k=0; k<sz; k++) {sum += Read(i, k)*ReadInv(k, j);}
+			cout << sum << ", ";
+		}
+		cout << " ], " << endl;
+	}
+	cout << "]" << endl;	
 }
