@@ -316,6 +316,9 @@ class SymmMatrix{
 		
 		void Initialize(int N);
 		
+		inline int GetSize() { return sz; }
+		inline int GetNumDelCol() { return num_del_col; }
+		
 		void Write(int i, int j, double val);
 		
 		void LDLT(bool overwrite);
@@ -334,5 +337,7 @@ class SymmMatrix{
 		void DeleteCol(int i);
 		
 		void VecMatMult(double *v);
+		void VecMatMult(double *v, int N);
+		void VecMatMult(double *v, double *res, int N);
 		
 };

@@ -308,6 +308,19 @@ static const map<string, ENUM_INTERPOLATOR> Interpolator_Map = CCreateMap<string
 ("CONSISTCONSERVE", CONSISTCONSERVE)
 ("RADIAL_BASIS_FUNCTION", RADIAL_BASIS_FUNCTION);
 
+/*!
+ * \brief types of radial basis functions
+ */
+enum ENUM_RADIALBASIS {
+  WENDLAND_C2 = 0,   /*!< \brief Wendland C2 radial basis function. */
+  THIN_PLATE_SPLINE = 1, /*!< \brief Thin plate spline radial basis function. */
+  GAUSSIAN = 2,/*!< \brief Gaussian basis function. */
+};
+
+static const map<string, ENUM_RADIALBASIS> RadialBasis_Map = CCreateMap<string, ENUM_RADIALBASIS>
+("WENDLAND_C2", WENDLAND_C2)
+("THIN_PLATE_SPLINE", THIN_PLATE_SPLINE)
+("GAUSSIAN", GAUSSIAN);
 
 /*!
  * \brief different regime modes

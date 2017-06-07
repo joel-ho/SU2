@@ -1717,6 +1717,15 @@ void CConfig::SetConfig_Options(unsigned short val_iZone, unsigned short val_nZo
    * Sets Kind_Interpolation \ingroup Config
    */
   addEnumOption("KIND_INTERPOLATION", Kind_Interpolation, Interpolator_Map, NEAREST_NEIGHBOR);
+  
+  /*!\par KIND_INTERPOLATION \n
+   * DESCRIPTION: Type of radial basis function to use for radial basis function interpolation. \n OPTIONS: see \link RadialBasis_Map \endlink
+   * Sets Kind_RadialBasis \ingroup Config
+   */
+  addEnumOption("KIND_RADIAL_BASIS", Kind_RadialBasis, RadialBasis_Map, WENDLAND_C2);
+  
+  /* DESCRIPTION: Radius for radial basis function */
+  addDoubleOption("BASIS_FUNCTION_RADIUS", BasisFunction_Radius, 1);
 
   /* DESCRIPTION: Maximum number of FSI iterations */
   addUnsignedShortOption("FSI_ITER", nIterFSI, 1);

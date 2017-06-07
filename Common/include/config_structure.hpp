@@ -865,6 +865,8 @@ private:
   su2double Static_Time;			/*!< \brief Time while the structure is not loaded in FSI applications. */
   unsigned short Pred_Order;  /*!< \brief Order of the predictor for FSI applications. */
   unsigned short Kind_Interpolation; /*!\brief type of interpolation to use for FSI applications. */
+  unsigned short Kind_RadialBasis; /*!\brief type of radial basis function to use for radial basis FSI. */
+  su2double BasisFunction_Radius; /*!\brief radial basis function radius for radial basis FSI. */
   bool Prestretch;            /*!< Read a reference geometry for optimization purposes. */
   string Prestretch_FEMFileName;         /*!< \brief File name for reference geometry. */
   string FEA_FileName;         /*!< \brief File name for element-based properties. */
@@ -7214,6 +7216,16 @@ public:
 	 * \brief Get the interpolation method used for matching between zones.
 	 */
 	inline unsigned short GetKindInterpolation(void);
+	
+	/*!
+	 * \brief Get the basis function to use for radial basis function interpolation for FSI.
+	 */
+	inline unsigned short GetKindRadialBasis(void);
+	
+	/*!
+	 * \brief Get the basis function radius to use for radial basis function interpolation for FSI.
+	 */
+	inline su2double GetBasisFunctionRadius(void);
 
   /*!
    * \brief Get the AD support.
