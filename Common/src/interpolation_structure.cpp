@@ -1481,30 +1481,35 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     /*-- Collect coordinates, global points, and normal vectors ---*/
     Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim );
 
-	/*--- EXPERIMENT_START ---*/
-	cout << "\nEXPERIMENT_START" << endl;
+	/*--- NEW_CODE_START ---*/
+//	cout << "\nNEW_CODE_START" << endl;
+	
+	bool *interpCoord;
+	
+	int tmpCounter, numDonorPts;
+	
+	unsigned long donorGlobalIdx;
+	
+	su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon();
+	su2double *rbfCoord_i, *interfaceCoordLimits, *targetVec, *coeffVec;
 	
 	SymmMatrix donorR;
-	int tmpCounter, numDonorPts;
-	unsigned long rbfNode, donorGlobalIdx;
-	su2double rbfRadius=0.008, rbfVal, interfaceCoordTol=1e-12, interfaceCoordLimits[nDim*2];
-	su2double rbfCoord_i[nDim], rbfCoord_j[nDim], *targetVec, *coeffVec;
-	bool interpCoord[nDim];
 	
-//	cout << "Kind of radial basis function: " << config[donorZone]->GetKindRadialBasis() << endl;
-//	cout << "Radial basis function radius: " << config[donorZone]->GetBasisFunctionRadius() << endl;
+	rbfCoord_i = new su2double [nDim];
+	interfaceCoordLimits = new su2double [nDim*2];
+	interpCoord = new bool [nDim];
 	
 	// Fill M matrix and P vector
 	donorR.Initialize(nVertexDonor+nDim+1);
 	
 	for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
 
-		rbfNode = donor_geometry->vertex[markDonor][rbf_i]->GetNode();
+		jVertex = donor_geometry->vertex[markDonor][rbf_i]->GetNode();
 		
 		// Write polynomial terms to P vector
 		donorR.Write(rbf_i, nVertexDonor, 1.0);
 		for (iDim = 0; iDim < nDim; iDim++) {
-			rbfCoord_i[iDim] = donor_geometry->node[rbfNode]->GetCoord(iDim);
+			rbfCoord_i[iDim] = donor_geometry->node[jVertex]->GetCoord(iDim);
 			donorR.Write(rbf_i, nVertexDonor+iDim+1, rbfCoord_i[iDim]);
 			
 			// Get coordinates limit on interface
@@ -1527,21 +1532,11 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 	
 		for (unsigned long rbf_j=rbf_i; rbf_j<nVertexDonor; rbf_j++) {
 		
-			rbfNode = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-		
-			// Calculate radial distance
-			rbfVal = 0.0;
-			for (iDim = 0; iDim < nDim; iDim++) {
-			  rbfCoord_j[iDim] = donor_geometry->node[rbfNode]->GetCoord(iDim);
-		      rbfVal += pow(rbfCoord_j[iDim] - rbfCoord_i[iDim], 2.0);
-		      
-		    }
-		    rbfVal = sqrt(rbfVal);
+			jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
 		    
 		    // Calculate basis function
-		    rbfVal /= rbfRadius;
-		    if (rbfVal < 1) {rbfVal = pow((1-rbfVal), 4)*(4*rbfVal + 1);}
-		    else {rbfVal = 0;}
+		    Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);
+		    Get_RadialBasisValue(rbfVal, config[donorZone]);
 		    
 		    // Write to R matrix
 			donorR.Write(rbf_i, rbf_j, rbfVal);
@@ -1550,10 +1545,12 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 	}
 	
 	// Check if there are any common coordinates among all the donor points
+	tmpCounter = 0;
 	for (iDim=0; iDim<nDim; iDim++) {
 		if ((interfaceCoordLimits[iDim*nDim+1]-interfaceCoordLimits[iDim*nDim]) < interfaceCoordTol) {
 			interpCoord[iDim] = false;
-			donorR.DeleteCol(nVertexDonor+iDim+1);
+			donorR.DeleteCol(nVertexDonor+iDim+1-tmpCounter);
+			tmpCounter++;
 		}
 	}
 	
@@ -1571,8 +1568,8 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       targetVec[nVertexDonor] = 1.0;
       tmpCounter=0;
       for (iDim=0; iDim<nDim; iDim++) {
+      	rbfCoord_i[iDim] = target_geometry->node[Point_Target]->GetCoord(iDim);
       	if (interpCoord[iDim]) {
-		  	rbfCoord_i[iDim] = target_geometry->node[Point_Target]->GetCoord(iDim);
 		  	targetVec[nVertexDonor+iDim+1-tmpCounter] = rbfCoord_i[iDim];
 	  	}
 	  	else {
@@ -1585,26 +1582,12 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
 		
 			// Donor node number
-			rbfNode = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
+			jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
 		
-			// Calculate radial distance
-			rbfVal = 0.0;
-			for (iDim = 0; iDim < nDim; iDim++) {
-			  rbfCoord_j[iDim] = donor_geometry->node[rbfNode]->GetCoord(iDim);
-		      rbfVal += pow(rbfCoord_j[iDim] - rbfCoord_i[iDim], 2.0);
-		      
-		    }
-		    rbfVal = sqrt(rbfVal);
-		    
-		    // Calculate basis function
-		    rbfVal /= rbfRadius;
-		    if (rbfVal < 1) {
-		    	rbfVal = pow((1-rbfVal), 4)*(4*rbfVal + 1);
-		    	numDonorPts++;
-		    }
-		    else {
-		    	rbfVal = 0;
-		    }
+			// Calculate radial distance		    
+		    Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);		    
+		    Get_RadialBasisValue(rbfVal, config[donorZone]);
+		    if (rbfVal > 0) { numDonorPts++; }
 		    
 		    // Write to vector
 			targetVec[rbf_j] = rbfVal;
@@ -1622,9 +1605,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       		
       		if (targetVec[rbf_j] != 0) {
 		  		
-		  		rbfNode = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
+		  		jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
 			
-				donorGlobalIdx = donor_geometry->node[rbfNode]->GetGlobalIndex();
+				donorGlobalIdx = donor_geometry->node[jVertex]->GetGlobalIndex();
 				
 				target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(tmpCounter, donorGlobalIdx);
 				target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(tmpCounter, 0);		  	
@@ -1636,89 +1619,14 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       
   	}
 
+	delete [] rbfCoord_i;
+	delete [] interfaceCoordLimits;
+	delete [] interpCoord;
   	delete [] targetVec;
   	delete [] coeffVec;
-	
-	
-//	for (iProcessor = 0; iProcessor < nProcessor; iProcessor++) {
-//      for (jVertex = 0; jVertex < MaxLocalVertex_Donor; jVertex++) {
-//        
-//        Global_Point_Donor = iProcessor*MaxLocalVertex_Donor+jVertex;
-
-//		pGlobalPoint = Buffer_Receive_GlobalPoint[Global_Point_Donor];
-//		
-//		cout << pGlobalPoint << endl;
-
-//        /*--- Compute the dist ---*/
-//        dist = 0.0; 
-//        for (iDim = 0; iDim < nDim; iDim++) {
-//          Coord_j[iDim] = Buffer_Receive_Coord[ Global_Point_Donor*nDim+iDim];
-//          dist += pow(Coord_j[iDim] - Coord_i[iDim], 2.0);
-//        }
-
-//        if (dist < mindist) {
-//          mindist = dist;
-//          pProcessor = iProcessor;
-//          pGlobalPoint = Buffer_Receive_GlobalPoint[Global_Point_Donor];
-//        }
-
-//        if (dist == 0.0) break;
-//      }
-//	}
-	
-	cout << "EXPERIMENT_END\n" << endl;
-	/*--- EXPERIMENT_END ---*/
-
-
-
-//    /*--- Compute the closest point to a Near-Field boundary point ---*/
-//    maxdist = 0.0;
-
-//    for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) {
-
-//      Point_Target = target_geometry->vertex[markTarget][iVertexTarget]->GetNode();
-
-//      if ( target_geometry->node[Point_Target]->GetDomain() ) {
-
-//        target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(1);
-//        target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo(); // Possible meme leak?
-
-//        /*--- Coordinates of the boundary point ---*/
-//        Coord_i = target_geometry->node[Point_Target]->GetCoord();
-
-//        mindist    = 1E6; 
-//        pProcessor = 0;
-
-//        /*--- Loop over all the boundaries to find the pair ---*/
-
-//        for (iProcessor = 0; iProcessor < nProcessor; iProcessor++) {
-//        
-//          for (jVertex = 0; jVertex < MaxLocalVertex_Donor; jVertex++) {
-//            Global_Point_Donor = iProcessor*MaxLocalVertex_Donor+jVertex;
-
-//            /*--- Compute the dist ---*/
-//            dist = 0.0; 
-//            for (iDim = 0; iDim < nDim; iDim++) {
-//              Coord_j[iDim] = Buffer_Receive_Coord[ Global_Point_Donor*nDim+iDim];
-//              dist += pow(Coord_j[iDim] - Coord_i[iDim], 2.0);
-//            }
-
-//            if (dist < mindist) {
-//              mindist = dist; pProcessor = iProcessor; pGlobalPoint = Buffer_Receive_GlobalPoint[Global_Point_Donor];
-//            }
-
-//            if (dist == 0.0) break;
-//          }
-
-//        } 
-
-//        /*--- Store the value of the pair ---*/
-//        maxdist = max(maxdist, mindist);
-//        target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(iDonor, pGlobalPoint);
-//        target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(iDonor, pProcessor);
-//        target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(iDonor, 1.0);
-//      }
-//    }
+  	
+//	cout << "NEW_CODE_END\n" << endl;
+	/*--- NEW_CODE_END ---*/
 
     delete[] Buffer_Send_Coord;
     delete[] Buffer_Send_GlobalPoint;
@@ -1738,6 +1646,43 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
   #endif
 }
 
+void CRadialBasisFunction::Get_Distance(su2double *coord_i, su2double *coord_j, unsigned short nDim, su2double &dist)
+{
+	dist = 0;
+	for (unsigned short k=0; k<nDim; k++) {
+		dist += pow((coord_i[k] - coord_j[k]), 2);
+	}
+	dist = sqrt(dist);
+}
+
+void CRadialBasisFunction::Get_Distance(su2double *coord_i, CGeometry *geometry_j, unsigned long &node_j, unsigned short nDim, su2double &dist)
+{
+	dist = 0;
+	for (unsigned short k=0; k<nDim; k++) {
+		dist += pow((coord_i[k] -  geometry_j->node[node_j]->GetCoord(k)), 2);
+	}
+	dist = sqrt(dist);
+}
+
+void CRadialBasisFunction::Get_RadialBasisValue(su2double &dist, CConfig *config)
+{	
+	switch (config->GetKindRadialBasis()) {
+		case WENDLAND_C2:
+			dist /= config->GetBasisFunctionRadius();
+			dist = (dist<1) ? pow((1-dist), 4)*(4*dist+1) : 0;
+			break;
+			
+		case THIN_PLATE_SPLINE:
+			dist /= config->GetBasisFunctionRadius();
+			dist = (dist>0) ? dist*dist*log(dist) : 0;
+			break;
+			
+		case GAUSSIAN:
+			dist /= config->GetBasisFunctionRadius();
+			dist = exp(-dist*dist);
+			break;
+	}
+}
 
 /*--- Symmetric matrix class definitions ---*/
 SymmMatrix::SymmMatrix()

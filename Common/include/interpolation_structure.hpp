@@ -39,6 +39,7 @@
 #include <iostream>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 
 #include "config_structure.hpp"
 #include "geometry_structure.hpp"
@@ -287,9 +288,11 @@ public:
    */
   void Set_TransferCoeff(CConfig **config);
   
-  inline unsigned long Get_PIdxWrite(unsigned long iPoint, unsigned int nDim, int iDim){return iPoint*(nDim+1)+iDim+1;}
+  void Get_Distance(su2double *coord_i, su2double *coord_j, unsigned short nDim, su2double &dist);
+  
+  void Get_Distance(su2double *coord_i, CGeometry *geometry_j, unsigned long &node_j, unsigned short nDim, su2double &dist);
 
-  inline unsigned long GetPIdxRead(unsigned int row, unsigned long col, unsigned int nDim) {return col*(nDim+1)+row;}
+  void Get_RadialBasisValue(su2double &dist, CConfig *config);
 
   inline unsigned long Get_BufferCoordIdx(unsigned long iPoint, unsigned int nDim, unsigned int iDim){return iPoint*nDim+iDim;}
 
