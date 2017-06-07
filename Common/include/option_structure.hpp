@@ -313,12 +313,14 @@ static const map<string, ENUM_INTERPOLATOR> Interpolator_Map = CCreateMap<string
  */
 enum ENUM_RADIALBASIS {
   WENDLAND_C2 = 0,   /*!< \brief Wendland C2 radial basis function. */
-  THIN_PLATE_SPLINE = 1, /*!< \brief Thin plate spline radial basis function. */
-  GAUSSIAN = 2,/*!< \brief Gaussian basis function. */
+  INV_MULTI_QUARTIC = 1, /*!< \brief Inversed multi quartic biharmonic spline. */
+  THIN_PLATE_SPLINE = 2, /*!< \brief Thin plate spline. */
+  GAUSSIAN = 3,/*!< \brief Gaussian basis function. */
 };
 
 static const map<string, ENUM_RADIALBASIS> RadialBasis_Map = CCreateMap<string, ENUM_RADIALBASIS>
 ("WENDLAND_C2", WENDLAND_C2)
+("INV_MULTI_QUARTIC", INV_MULTI_QUARTIC)
 ("THIN_PLATE_SPLINE", THIN_PLATE_SPLINE)
 ("GAUSSIAN", GAUSSIAN);
 

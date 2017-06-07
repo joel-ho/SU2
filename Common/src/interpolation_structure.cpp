@@ -1481,87 +1481,92 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     /*-- Collect coordinates, global points, and normal vectors ---*/
     Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim );
 
-	/*--- NEW_CODE_START ---*/
-//	cout << "\nNEW_CODE_START" << endl;
-	
-	bool *interpCoord;
-	
-	int tmpCounter, numDonorPts;
-	
-	unsigned long donorGlobalIdx;
-	
-	su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon();
-	su2double *rbfCoord_i, *interfaceCoordLimits, *targetVec, *coeffVec;
-	
-	SymmMatrix donorR;
-	
-	rbfCoord_i = new su2double [nDim];
-	interfaceCoordLimits = new su2double [nDim*2];
-	interpCoord = new bool [nDim];
-	
-	// Fill M matrix and P vector
-	donorR.Initialize(nVertexDonor+nDim+1);
-	
-	for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
+    /*--- NEW_CODE_START ---*/	
+    bool *interpCoord;
 
-		jVertex = donor_geometry->vertex[markDonor][rbf_i]->GetNode();
+    int tmpCounter, numDonorPts;
+
+    unsigned long donorGlobalIdx;
+
+    su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon();
+    su2double *rbfCoord_i, *interfaceCoordLimits, *targetVec, *coeffVec;
+
+    SymmMatrix donorR;
+
+    rbfCoord_i = new su2double [nDim];
+    interfaceCoordLimits = new su2double [nDim*2];
+    interpCoord = new bool [nDim];
+	
+    // Fill R Matrix
+    donorR.Initialize(nVertexDonor+nDim+1);
+
+    for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
+
+	    jVertex = donor_geometry->vertex[markDonor][rbf_i]->GetNode();
+	
+	    // Write polynomial terms to R matrix
+	    donorR.Write(rbf_i, nVertexDonor, 1.0);
+      for (iDim = 0; iDim < nDim; iDim++) {
+        rbfCoord_i[iDim] = donor_geometry->node[jVertex]->GetCoord(iDim);
+        donorR.Write(rbf_i, nVertexDonor+iDim+1, rbfCoord_i[iDim]);
+
+        // Get coordinates limit on interface
+        if (rbf_i==0){
+	        interfaceCoordLimits[iDim*nDim] = rbfCoord_i[iDim];
+	        interfaceCoordLimits[iDim*nDim+1] = rbfCoord_i[iDim];
+	        interpCoord[iDim] = true;
+        }
+        else {
+	        interfaceCoordLimits[iDim*nDim] = \
+	        (rbfCoord_i[iDim]<interfaceCoordLimits[iDim*nDim]) ? \
+	        rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim];
+	
+	        interfaceCoordLimits[iDim*nDim+1] = \
+	        (rbfCoord_i[iDim]>interfaceCoordLimits[iDim*nDim+1]) ? \
+	        rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim+1];
+        }
 		
-		// Write polynomial terms to P vector
-		donorR.Write(rbf_i, nVertexDonor, 1.0);
-		for (iDim = 0; iDim < nDim; iDim++) {
-			rbfCoord_i[iDim] = donor_geometry->node[jVertex]->GetCoord(iDim);
-			donorR.Write(rbf_i, nVertexDonor+iDim+1, rbfCoord_i[iDim]);
-			
-			// Get coordinates limit on interface
-			if (rbf_i==0){
-				interfaceCoordLimits[iDim*nDim] = rbfCoord_i[iDim];
-				interfaceCoordLimits[iDim*nDim+1] = rbfCoord_i[iDim];
-				interpCoord[iDim] = true;
-			}
-			else {
-				interfaceCoordLimits[iDim*nDim] = \
-				(rbfCoord_i[iDim]<interfaceCoordLimits[iDim*nDim]) ? \
-				rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim];
-				
-				interfaceCoordLimits[iDim*nDim+1] = \
-				(rbfCoord_i[iDim]>interfaceCoordLimits[iDim*nDim+1]) ? \
-				rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim+1];
-			}
-			
+      }
+
+	    for (unsigned long rbf_j=rbf_i; rbf_j<nVertexDonor; rbf_j++) {
+	
+        jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
+          
+        // Calculate basis function
+        Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);
+        Get_RadialBasisValue(rbfVal, config[donorZone]);
+        
+        // Write to R matrix
+        donorR.Write(rbf_i, rbf_j, rbfVal);
+		
 	    }
-	
-		for (unsigned long rbf_j=rbf_i; rbf_j<nVertexDonor; rbf_j++) {
-		
-			jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-		    
-		    // Calculate basis function
-		    Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);
-		    Get_RadialBasisValue(rbfVal, config[donorZone]);
-		    
-		    // Write to R matrix
-			donorR.Write(rbf_i, rbf_j, rbfVal);
-			
-		}
-	}
-	
-	// Check if there are any common coordinates among all the donor points
-	tmpCounter = 0;
-	for (iDim=0; iDim<nDim; iDim++) {
-		if ((interfaceCoordLimits[iDim*nDim+1]-interfaceCoordLimits[iDim*nDim]) < interfaceCoordTol) {
-			interpCoord[iDim] = false;
-			donorR.DeleteCol(nVertexDonor+iDim+1-tmpCounter);
-			tmpCounter++;
-		}
-	}
-	
-	donorR.CalcInv(true);
-	
-	targetVec = new su2double [donorR.GetSize()];
-	coeffVec = new su2double [nVertexDonor];
-	
-	for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) {
+    }
+	  
+    // Check if there are any common coordinates among all the donor points
+    tmpCounter = 0;
+    for (iDim=0; iDim<nDim; iDim++) {
+      if ((interfaceCoordLimits[iDim*nDim+1]-interfaceCoordLimits[iDim*nDim]) < interfaceCoordTol) {
+        interpCoord[iDim] = false;
+        donorR.DeleteCol(nVertexDonor+iDim+1-tmpCounter);
+        tmpCounter++;
+      }
+    }
+    
+//    // REMOVE_START 
+//    donorR.Print();
+//    donorR.CalcInv(false);
+//    donorR.PrintInv();
+//    donorR.CheckInv();
+//    // REMOVE_END
+    
+    donorR.CalcInv(true);
 
-	  // Get target node number
+    targetVec = new su2double [donorR.GetSize()];
+    coeffVec = new su2double [nVertexDonor];
+	
+	  for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) {
+
+      // Get target node number
       Point_Target = target_geometry->vertex[markTarget][iVertexTarget]->GetNode();
       
       // Get target point coordinates
@@ -1570,63 +1575,61 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       for (iDim=0; iDim<nDim; iDim++) {
       	rbfCoord_i[iDim] = target_geometry->node[Point_Target]->GetCoord(iDim);
       	if (interpCoord[iDim]) {
-		  	targetVec[nVertexDonor+iDim+1-tmpCounter] = rbfCoord_i[iDim];
-	  	}
-	  	else {
-	  		tmpCounter++;
-	  	}
+      	  targetVec[nVertexDonor+iDim+1-tmpCounter] = rbfCoord_i[iDim];
+      	}
+      	else {
+      		tmpCounter++;
+      	}
       }
       
       // Iterate through donor points
       numDonorPts = 0;
       for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
-		
-			// Donor node number
-			jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-		
-			// Calculate radial distance		    
-		    Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);		    
-		    Get_RadialBasisValue(rbfVal, config[donorZone]);
-		    if (rbfVal > 0) { numDonorPts++; }
-		    
-		    // Write to vector
-			targetVec[rbf_j] = rbfVal;
-			
-		}
-      
-      	// Calculate coefficient values
-      	donorR.VecMatMult(targetVec, coeffVec, nVertexDonor);
-      	
-      	// Assign coefficient values
-      	target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(numDonorPts);
-		target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo();
-		tmpCounter = 0;
-      	for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
-      		
-      		if (targetVec[rbf_j] != 0) {
-		  		
-		  		jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-			
-				donorGlobalIdx = donor_geometry->node[jVertex]->GetGlobalIndex();
-				
-				target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(tmpCounter, donorGlobalIdx);
-				target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(tmpCounter, 0);		  	
-		  		target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(tmpCounter, coeffVec[rbf_j]);
-		  		
-		  		tmpCounter++;
-      		}
-      	}
-      
-  	}
 
-	delete [] rbfCoord_i;
-	delete [] interfaceCoordLimits;
-	delete [] interpCoord;
+	      // Donor node number
+	      jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
+
+	      // Calculate radial distance		    
+        Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);		    
+        Get_RadialBasisValue(rbfVal, config[donorZone]);
+        if (rbfVal > 0) { numDonorPts++; }
+        
+        // Write to vector
+	      targetVec[rbf_j] = rbfVal;
+	
+      }
+        
+    	// Calculate coefficient values
+    	donorR.VecMatMult(targetVec, coeffVec, nVertexDonor);
+    	
+    	// Assign coefficient values
+    	target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(numDonorPts);
+		  target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo();
+		  tmpCounter = 0;
+    	for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
+    		
+    		if (targetVec[rbf_j] > 0) {
+    		
+      		jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
+	
+		      donorGlobalIdx = donor_geometry->node[jVertex]->GetGlobalIndex();
+		
+		      target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(tmpCounter, donorGlobalIdx);
+		      target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(tmpCounter, 0);		  	
+      		target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(tmpCounter, coeffVec[rbf_j]);
+      		
+      		tmpCounter++;
+    		}
+    	}
+    }
+
+	  delete [] rbfCoord_i;
+	  delete [] interfaceCoordLimits;
+	  delete [] interpCoord;
   	delete [] targetVec;
   	delete [] coeffVec;
   	
-//	cout << "NEW_CODE_END\n" << endl;
-	/*--- NEW_CODE_END ---*/
+	  /*--- NEW_CODE_END ---*/
 
     delete[] Buffer_Send_Coord;
     delete[] Buffer_Send_GlobalPoint;
@@ -1668,19 +1671,23 @@ void CRadialBasisFunction::Get_RadialBasisValue(su2double &dist, CConfig *config
 {	
 	switch (config->GetKindRadialBasis()) {
 		case WENDLAND_C2:
-			dist /= config->GetBasisFunctionRadius();
-			dist = (dist<1) ? pow((1-dist), 4)*(4*dist+1) : 0;
-			break;
+		  dist /= config->GetBasisFunctionRadius();
+		  dist = (dist<1) ? pow((1-dist), 4)*(4*dist+1) : 0;
+		break;
+			
+		case INV_MULTI_QUARTIC:
+	    dist = 1/sqrt(dist*dist + pow(config->GetBasisFunctionRadius(), 2));
+		break;
 			
 		case THIN_PLATE_SPLINE:
-			dist /= config->GetBasisFunctionRadius();
-			dist = (dist>0) ? dist*dist*log(dist) : 0;
-			break;
+		  dist /= config->GetBasisFunctionRadius();
+		  dist = (dist>0) ? dist*dist*log(dist) : 0;
+		break;
 			
 		case GAUSSIAN:
-			dist /= config->GetBasisFunctionRadius();
-			dist = exp(-dist*dist);
-			break;
+		  dist /= config->GetBasisFunctionRadius();
+		  dist = exp(-dist*dist);
+		break;
 	}
 }
 
