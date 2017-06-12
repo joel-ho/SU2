@@ -1530,11 +1530,13 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim, nLocalVertex_Donor);
     
     /*--- NEW_CODE_PARALLEL_START ---*/
-    unsigned long nGlobalVertex_Donor, iLocalVertex_Donor_start, iLocalVertex_Donor_end, localR_size, tmp_counter=0, recv_localR_size;
-    unsigned long *nLocalVertex_Donor_arr, *localR_size_arr;
-    su2double rbfVal;
-    su2double *localR, *rbfCoord_i, *rbfCoord_j, *globalR_val_arr, *Buffer_recv_localR;
-    SymmMatrix globalR;
+    bool *calcDim;
+    int nCalc;
+    unsigned long nGlobalVertex_Donor, iLocalVertex_Donor_start, iLocalVertex_Donor_end, localM_size, tmp_counter=0, recv_localM_size;
+    unsigned long *nLocalVertex_Donor_arr, *localM_size_arr;
+    su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon(), tmp_val_one, tmp_val_two;
+    su2double *localM, *rbfCoord_i, *rbfCoord_j, *globalM_val_arr, *Buffer_recv_localM, *globalP, *globalP_limits, *globalP_tmp;
+    SymmMatrix *globalM, *Mp;
     
     #ifdef HAVE_MPI
     cout << "rank: " << rank << ", Buffer_Send_GlobalPoint: [";
@@ -1569,25 +1571,25 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     }
     iLocalVertex_Donor_start = iLocalVertex_Donor_end - nLocalVertex_Donor;
     
-    // Send information about size of localR array
-		localR_size = nLocalVertex_Donor*(nLocalVertex_Donor+1)/2 + nLocalVertex_Donor*(nGlobalVertex_Donor-iLocalVertex_Donor_end);
-    localR_size_arr = new unsigned long [nProcessor];
+    // Send information about size of localM array
+		localM_size = nLocalVertex_Donor*(nLocalVertex_Donor+1)/2 + nLocalVertex_Donor*(nGlobalVertex_Donor-iLocalVertex_Donor_end);
+    localM_size_arr = new unsigned long [nProcessor];
     #ifdef HAVE_MPI
-    SU2_MPI::Allgather(&localR_size, 1, MPI_UNSIGNED_LONG, localR_size_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
+    SU2_MPI::Allgather(&localM_size, 1, MPI_UNSIGNED_LONG, localM_size_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
     #else
-    localR_size_arr[SINGLE_NODE] = localR_size;
+    localM_size_arr[SINGLE_NODE] = localM_size;
     #endif
     
     #ifdef HAVE_MPI
-    cout << "rank: " << rank << ", iLocalVertex_Donor_start: " << iLocalVertex_Donor_start << ", iLocalVertex_Donor_end: " << iLocalVertex_Donor_end << ", localR_size: " << localR_size << endl;
+    cout << "rank: " << rank << ", iLocalVertex_Donor_start: " << iLocalVertex_Donor_start << ", iLocalVertex_Donor_end: " << iLocalVertex_Donor_end << ", localM_size: " << localM_size << endl;
     #endif
     
-    // Initialize local R array and calculate values
-    localR = new su2double [localR_size];  
+    // Initialize local M array and calculate values
+    localM = new su2double [localM_size];  
     rbfCoord_i = new su2double [nDim];
     rbfCoord_j = new su2double [nDim];
     tmp_counter=0;
-    cout << "rank: " << rank << ", localR: [";
+    cout << "rank: " << rank << ", localM: [";
     for (unsigned long rbf_i=0; rbf_i<nLocalVertex_Donor; rbf_i++) {
 //    	iDonor = nLocalVertex_Donor_prior + rbf_i;
     	for (iDim=0; iDim<nDim; iDim++) { rbfCoord_i[iDim] = Buffer_Send_Coord[rbf_i*nDim + iDim]; }
@@ -1597,7 +1599,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 
 	    		Get_Distance(rbfCoord_i, rbfCoord_j, nDim, rbfVal);
 			    Get_RadialBasisValue(rbfVal, config[donorZone]);
-			    localR[tmp_counter] = rbfVal;
+			    localM[tmp_counter] = rbfVal;
 			    tmp_counter++;
 	      
 	        cout << rbfVal << ", ";
@@ -1611,7 +1613,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 			  		for (iDim=0; iDim<nDim; iDim++) { rbfCoord_j[iDim] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+rbf_j)*nDim + iDim]; }    		
 							Get_Distance(rbfCoord_i, rbfCoord_j, nDim, rbfVal);
 						  Get_RadialBasisValue(rbfVal, config[donorZone]);
-						  localR[tmp_counter] = rbfVal;
+						  localM[tmp_counter] = rbfVal;
 						  tmp_counter++;
 			        cout << rbfVal << ", ";
 			        
@@ -1624,54 +1626,204 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 //    
     #ifdef HAVE_MPI
     if (rank != MASTER_NODE) {
-    	SU2_MPI::Send(localR, localR_size, MPI_DOUBLE, MASTER_NODE, 0, MPI_COMM_WORLD);
+    	SU2_MPI::Send(localM, localM_size, MPI_DOUBLE, MASTER_NODE, 0, MPI_COMM_WORLD);
     }
     
     if (rank == MASTER_NODE) {
     
-    	globalR_val_arr = new su2double [nGlobalVertex_Donor*(nGlobalVertex_Donor+1)/2];
+    	globalM_val_arr = new su2double [nGlobalVertex_Donor*(nGlobalVertex_Donor+1)/2];
     	
-    	// Copy master node localR to globalR
+    	// Copy master node localM to globalM
     	tmp_counter = 0;
-    	for (unsigned long rbf_i=0; rbf_i<localR_size; rbf_i++) {
-    		globalR_val_arr[tmp_counter] = localR[rbf_i];
+    	for (unsigned long rbf_i=0; rbf_i<localM_size; rbf_i++) {
+    		globalM_val_arr[tmp_counter] = localM[rbf_i];
     		tmp_counter++;
     	}
     	
-    	// Receive localR from various processors
+    	// Receive localM from various processors
 			if (nProcessor > SINGLE_NODE) {
 		  	for (int rbf_i=1; rbf_i<nProcessor; rbf_i++) {
-			  	Buffer_recv_localR = new su2double[localR_size_arr[rbf_i]];
-			  	SU2_MPI::Recv(Buffer_recv_localR, localR_size_arr[rbf_i], MPI_DOUBLE, rbf_i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			  	Buffer_recv_localM = new su2double[localM_size_arr[rbf_i]];
+			  	SU2_MPI::Recv(Buffer_recv_localM, localM_size_arr[rbf_i], MPI_DOUBLE, rbf_i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			  	
-			  	// Copy processor's localR to globalR
-			  	for (unsigned long rbf_j=0; rbf_j<localR_size_arr[rbf_i]; rbf_j++) {
-			  		globalR_val_arr[tmp_counter] = Buffer_recv_localR[rbf_j];
+			  	// Copy processor's localM to globalM
+			  	for (unsigned long rbf_j=0; rbf_j<localM_size_arr[rbf_i]; rbf_j++) {
+			  		globalM_val_arr[tmp_counter] = Buffer_recv_localM[rbf_j];
 			  		tmp_counter++;
 			  	}
 			  	
-			  	delete [] Buffer_recv_localR;
+			  	delete [] Buffer_recv_localM;
 		  	}
     	}
     	
     	// Initialize symmetric matrix
-    	globalR.Initialize(nGlobalVertex_Donor, globalR_val_arr);
-    	globalR_val_arr = NULL;
+    	globalM = new SymmMatrix;
+    	globalM->Initialize(nGlobalVertex_Donor, globalM_val_arr);
+    	globalM_val_arr = NULL;
     	
-	    globalR.Print();
-    	
+	    globalM->Print();
+	    
     }
     #else
-    globalR.Initialize(nLocalVertex_Donor, localR);
+    globalM = new SymmMatrix;
+    globalM->Initialize(nLocalVertex_Donor, localM);  
     #endif
     
-
+    // Invert M matrix
+    if (rank == MASTER_NODE)
+    {
+    	globalM->Chol(true);
+	    globalM->CalcInv(true);
+    }
     
+		// Fill P matrix
+		if (rank == MASTER_NODE)
+		{
+		
+			// Fill P matrix and get minimum and maximum values
+			calcDim = new bool [nDim];
+			globalP_limits = new su2double [nDim*2];
+			globalP = new su2double [nGlobalVertex_Donor*(nDim+1)];
+			tmp_counter = 0;
+			for (iProcessor=MASTER_NODE; iProcessor<nProcessor; iProcessor++)
+			{
+				for (unsigned long rbf_j=0; rbf_j<nLocalVertex_Donor_arr[iProcessor]; rbf_j++)
+				{
+					globalP[tmp_counter*(nDim+1)] = 1;
+					for (iDim=0; iDim<nDim; iDim++)
+					{
+						globalP[tmp_counter*(nDim+1)+iDim+1] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+rbf_j)*nDim + iDim];
+					
+						if (tmp_counter == 0)
+						{
+							globalP_limits[iDim*nDim] = globalP[tmp_counter*(nDim+1)+iDim+1];
+							globalP_limits[iDim*nDim+1] = globalP[tmp_counter*(nDim+1)+iDim+1];
+							calcDim[iDim] = true;
+						}
+						else
+						{
+							// Get minimum coordinate value
+							globalP_limits[iDim*nDim] = \
+							(globalP[tmp_counter*(nDim+1)+iDim+1] < globalP_limits[iDim*nDim]) ? \
+							globalP[tmp_counter*(nDim+1)+iDim+1] : globalP_limits[iDim*nDim];
+
+							// Get maximum coordinate value
+							globalP_limits[iDim*nDim+1] = \
+							(globalP[tmp_counter*(nDim+1)+iDim+1] > globalP_limits[iDim*nDim+1]) ? \
+							globalP[tmp_counter*(nDim+1)+iDim+1] : globalP_limits[iDim*nDim+1];
+						}
+					
+					}
+					tmp_counter++;
+				}
+			}
+			
+			// Check for any constant coordinates which will make RBF matrix singular
+			nCalc = nDim;
+			for (iDim=0; iDim<nDim; iDim++)
+			{
+				if ( (globalP_limits[iDim*2+1]-globalP_limits[iDim*2]) < interfaceCoordTol )
+				{
+					calcDim[iDim] = false;
+					nCalc--;
+				}
+			}
+			
+			cout << "globalP: [";
+			for (int iC=0; iC<nGlobalVertex_Donor*(nDim+1); iC++) {cout << globalP[iC] << ", ";}
+			cout << "]" << endl;
+			
+			cout << "globalP_limits: [";
+			for (int iC=0; iC<nDim*2; iC++) {cout << globalP_limits[iC] << ", ";}
+			cout << "]" << endl;
+			
+			cout << "calcDim:[ ";
+			for (int iC=0; iC<nDim; iC++) {cout << calcDim[iC] << ", ";}
+			cout << "]" << endl;
+			
+			if (nCalc < nDim)
+			{
+				globalP_tmp = new su2double [nGlobalVertex_Donor*(tmp_counter+1)];
+				
+				tmp_counter = 0;
+				for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
+				{
+					globalP_tmp[tmp_counter] = 1;
+					tmp_counter++;
+					for (iDim=0; iDim<nDim; iDim++)
+					{
+						if (calcDim[iDim])
+						{
+							globalP_tmp[tmp_counter] = globalP[rbf_i*(nDim+1)+iDim+1];
+							tmp_counter++;
+						}
+					}
+				}
+				
+				delete [] globalP;
+				globalP = globalP_tmp;
+				globalP_tmp = NULL;
+				
+				cout << "globalP_new: [";
+				for (int iC=0; iC<tmp_counter; iC++) {cout << globalP[iC] << ", ";}
+				cout << "]" << endl;
+
+				
+				
+			}
+			
+			
+		}
+    
+    // Calculate Mp
+    if (rank == MASTER_NODE)
+    {
+    	Mp = new SymmMatrix;
+    	Mp->Initialize(nCalc+1);
+    	for (int rbf_m=0; rbf_m<nCalc+1; rbf_m++)
+    	{
+    		for (int rbf_n=rbf_m; rbf_n<nCalc+1; rbf_n++)
+    		{
+    		
+    			tmp_val_one = 0;
+    			for (int rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
+    			{
+    			
+    				tmp_val_two = 0;
+    				for (int rbf_k=0; rbf_k<nGlobalVertex_Donor; rbf_k++)
+		  			{
+		  				tmp_val_two += globalM->Read(rbf_i, rbf_k)*globalP[rbf_k*(nCalc+1)+rbf_n];
+		  			}
+		  			
+		  			tmp_val_one += tmp_val_two*globalP[rbf_i*(nCalc+1)+rbf_m];
+		  			
+    			}
+    			
+    			Mp->Write(rbf_m, rbf_n, tmp_val_one);
+    			
+    		}
+    	}
+    	
+    	Mp->CalcInv(true);
+    	
+    }
+    
+    // Memory management
     delete [] nLocalVertex_Donor_arr;
-    delete [] localR_size_arr;
-    delete [] localR;
+    delete [] localM_size_arr;
+    delete [] localM;
     delete [] rbfCoord_i;
     delete [] rbfCoord_j;
+    
+    if (rank == MASTER_NODE)
+    {
+		  delete globalM;
+    	delete [] calcDim;
+    	delete [] globalP_limits;
+    	delete [] globalP;
+    	delete Mp;
+    }
+    
     
     /*--- NEW_CODE_PARALLEL_END ---*/
     
