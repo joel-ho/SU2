@@ -1535,7 +1535,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     unsigned long nGlobalVertex_Donor, iLocalVertex_Donor_start, iLocalVertex_Donor_end, localM_size, tmp_counter=0, recv_localM_size;
     unsigned long *nLocalVertex_Donor_arr, *localM_size_arr;
     su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon(), tmp_val_one, tmp_val_two;
-    su2double *localM, *rbfCoord_i, *rbfCoord_j, *globalM_val_arr, *Buffer_recv_localM, *globalP, *globalP_limits, *globalP_tmp;
+    su2double *localM, *rbfCoord_i, *rbfCoord_j, *globalM_val_arr, *Buffer_recv_localM, *globalP, *globalP_limits, *globalP_tmp, *C_trunc, *C_tmp;
     SymmMatrix *globalM, *Mp;
     
     #ifdef HAVE_MPI
@@ -1806,6 +1806,75 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	
     	Mp->CalcInv(true);
     	
+    	Mp->Print();
+    	
+    	// Calculate M_p*P*M_inv
+    	C_trunc = new su2double [(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor];
+    	for (int rbf_m=0; rbf_m<nCalc+1; rbf_m++)
+    	{
+    		for (unsigned long rbf_n=0; rbf_n<nGlobalVertex_Donor; rbf_n++)
+    		{
+    			tmp_val_one = 0;
+    			for (int rbf_i=0; rbf_i<nCalc+1; rbf_i++)
+    			{
+    				tmp_val_two = 0;
+    				for (unsigned long rbf_k=0; rbf_k<nGlobalVertex_Donor; rbf_k++)
+    				{
+    					tmp_val_two += globalP[rbf_k*(nCalc+1)+rbf_i]*globalM->Read(rbf_k, rbf_n);
+    				}
+    				tmp_val_one += tmp_val_two*Mp->Read(rbf_m, rbf_i);
+    			}
+	    		C_trunc[rbf_m*nGlobalVertex_Donor+rbf_n] = tmp_val_one; // Row major order
+    		}  		
+    	}
+    	
+    	cout << "MpPM_inv: [";
+    	for (int iC=0; iC<nGlobalVertex_Donor*(nCalc+1); iC++) {cout << C_trunc[iC] << ", ";}
+    	cout << "]" << endl;
+    	
+    	// Calculate (I - P'*M_p*P*M_inv)
+    	C_tmp = new su2double [nGlobalVertex_Donor*nGlobalVertex_Donor];
+    	for (unsigned long rbf_m=0; rbf_m<nGlobalVertex_Donor; rbf_m++) 
+    	{
+    		for (unsigned long rbf_n=0; rbf_n<nGlobalVertex_Donor; rbf_n++)
+    		{
+    			tmp_val_one = 0;
+    			for (int rbf_k=0; rbf_k<nCalc+1; rbf_k++)
+    			{
+    				tmp_val_one += globalP[rbf_m*(nCalc+1)+rbf_k]*C_trunc[rbf_k*nGlobalVertex_Donor+rbf_n];
+    			}
+    			C_tmp[rbf_m*(nGlobalVertex_Donor)+rbf_n] = -tmp_val_one;
+    			
+    			if (rbf_n==rbf_m) { C_tmp[rbf_m*(nGlobalVertex_Donor)+rbf_n] += 1; }
+    			
+    		}
+    	}
+    	
+    	cout << "C_tmp: [";
+    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
+    	cout << "]" << endl;
+    	
+    	// Calculate M_inv*(I - P'*M_p*P*M_inv)
+    	globalM->SymmMatMatMult(C_tmp, nGlobalVertex_Donor, true);
+    	
+    	cout << "C_tmp (after multiplying): [";
+    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
+    	cout << "]" << endl;
+    	
+    	// Write to C_trunc matrix
+    	for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
+    	{
+    		for (unsigned long rbf_j=0; rbf_j<nGlobalVertex_Donor; rbf_j++)
+    		{
+    			C_trunc[(rbf_i+nCalc+1)*(nGlobalVertex_Donor)+rbf_j] = C_tmp[rbf_i*(nGlobalVertex_Donor)+rbf_j];
+    		}
+    	}
+    	
+    	cout << "C_trunc: [";
+    	for (int iC=0; iC<(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor; iC++) {cout << C_trunc[iC] << ", ";}
+    	cout << "]" << endl;
+    	
+    	
     }
     
     // Memory management
@@ -1822,6 +1891,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	delete [] globalP_limits;
     	delete [] globalP;
     	delete Mp;
+    	delete [] C_tmp;
     }
     
     
@@ -2499,6 +2569,69 @@ void SymmMatrix::VecMatMult(double *v, double *res, int N)
 			res[i] += v[k]*Read(k, i);
 		}
 	}
+}
+
+void SymmMatrix::MatVecMult(double *v)
+{
+	double *tmp_res;
+	
+	tmp_res = new double [sz];
+	for (int i=0; i<sz; i++) {
+		tmp_res[i] = 0.0;
+		for (int k=0; k<sz; k++) {
+			tmp_res[i] += v[k]*Read(i, k);
+		}
+	}
+		
+	delete [] v;
+	v = tmp_res;
+	tmp_res = NULL;
+}
+
+void SymmMatrix::SymmMatMatMult(double *mat_vec, int N, bool row_major_order)
+{
+	double *tmp_res;
+	
+	tmp_res = new double [sz*N];
+	
+	if (row_major_order)
+	{
+		for (unsigned long i=0; i<sz; i++)
+		{
+			for (unsigned long j=0; j<N; j++)
+			{
+				tmp_res[i*N+j] = 0;
+				for (unsigned long k=0; k<sz; k++)
+				{
+					tmp_res[i*N+j] += Read(i, k)*mat_vec[k*N+j];
+				}
+			}
+		}
+	}
+	
+	// Column major order
+	else
+	{
+		for (unsigned long i=0; i<sz; i++)
+		{
+			for (unsigned long j=0; j<N; j++)
+			{
+				tmp_res[j*sz+i] = 0;
+				for (unsigned long k=0; k<sz; k++)
+				{
+					tmp_res[j*sz+i] += Read(i, k)*mat_vec[j*sz+k];
+				}
+			}
+		}
+	}
+	
+	for (unsigned long i=0; i<sz*N; i++)
+	{
+		mat_vec[i] = tmp_res[i];
+	}
+	
+	delete [] tmp_res;
+	
 }
 
 void SymmMatrix::Print()

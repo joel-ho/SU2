@@ -2564,6 +2564,7 @@ void CDriver::Interface_Preprocessing() {
             else{
               interpolator_container[donorZone][targetZone] = new CIsoparametric(geometry_container, config_container, donorZone, targetZone);
               if (rank == MASTER_NODE) cout << "using an isoparametric approach." << endl;
+              
             }
             if ( targetZone == 0 && structural_target ) {
               if (rank == MASTER_NODE) cout << "Consistent and conservative interpolation assumes the structure model mesh is evaluated second. Somehow this has not happened. The isoparametric coefficients will be calculated for both meshes, and are not guaranteed to be consistent." << endl;

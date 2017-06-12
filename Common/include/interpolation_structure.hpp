@@ -344,5 +344,8 @@ class SymmMatrix{
 		void VecMatMult(double *v);
 		void VecMatMult(double *v, int N);
 		void VecMatMult(double *v, double *res, int N);
+		void MatVecMult(double *v);
+		
+		void SymmMatMatMult(double *mat_vec, int N, bool row_major_order);
 		
 };
