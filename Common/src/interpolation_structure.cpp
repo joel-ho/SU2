@@ -193,10 +193,13 @@ void CInterpolator::Determine_ArraySize(bool faces, int markDonor, int markTarge
 
 }
 
-void CInterpolator::Collect_VertexInfo(bool faces, int markDonor, int markTarget, unsigned long nVertexDonor, unsigned short nDim) {
-  unsigned long nLocalVertex_Donor = 0;
+void CInterpolator::Collect_VertexInfo(bool faces, int markDonor, int markTarget, unsigned long nVertexDonor, unsigned short nDim, unsigned long &nLocalVertex_Donor)
+{
   unsigned long iVertex, iPointDonor = 0, iVertexDonor, nBuffer_Coord, nBuffer_Point;
   unsigned short iDim;
+  
+  nLocalVertex_Donor = 0;
+  
   /* Only needed if face data is also collected */
   su2double  *Normal;
 
@@ -256,6 +259,13 @@ void CInterpolator::Collect_VertexInfo(bool faces, int markDonor, int markTarget
       Buffer_Receive_Normal[iVertex] = Buffer_Send_Normal[iVertex];
   }
 #endif
+}
+
+void CInterpolator::Collect_VertexInfo(bool faces, int markDonor, int markTarget, unsigned long nVertexDonor, unsigned short nDim) {
+
+	unsigned long  nLocalVertex_Donor = 0;
+	
+	Collect_VertexInfo(faces, markDonor, markTarget, nVertexDonor, nDim, nLocalVertex_Donor);
 }
 
 int CInterpolator::Find_InterfaceMarker(CConfig *config, unsigned short val_marker_interface) {
@@ -400,6 +410,48 @@ void CNearestNeighbor::Set_TransferCoeff(CConfig **config) {
 
     /*-- Collect coordinates, global points, and normal vectors ---*/
     Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim );
+    
+    // PRINT_START
+    int nLocalVertex_Donor=0, tmp_node=0, tmp_global_idx=0, *nodes, *nodes_local, *global_idx, *global_idx_local;
+    
+    nodes = new int [nVertexDonor];
+    nodes_local = new int [nVertexDonor];
+    global_idx = new int [nVertexDonor];
+    global_idx_local = new int [nVertexDonor];
+    
+    for (int tmp_counter=0; tmp_counter<nVertexDonor; tmp_counter++) {
+    	tmp_node = donor_geometry->vertex[markDonor][tmp_counter]->GetNode();
+    	
+    	tmp_global_idx = donor_geometry->node[tmp_node]->GetGlobalIndex();
+    	
+    	nodes[tmp_counter] = tmp_node;
+    	global_idx[tmp_counter] = tmp_global_idx;
+    	
+    	if (donor_geometry->node[tmp_node]->GetDomain()) { 
+    		nLocalVertex_Donor++; 
+    		nodes_local[tmp_counter] = tmp_node;
+    		global_idx_local[tmp_counter] = tmp_global_idx;
+    		
+    	}
+    	else {
+    		nodes_local[tmp_counter] = -999;
+    		global_idx_local[tmp_counter] = -999;
+    	}
+    }
+    
+    cout << "markDonor: " << markDonor << ", rank: " << rank << ", nVertexDonor: " << nVertexDonor << ", nLocalVertex_Donor: " << nLocalVertex_Donor << ", global_idx: [";
+    for (int tmp_counter=0; tmp_counter<nVertexDonor; tmp_counter++) {cout << global_idx[tmp_counter] << ", ";} 
+    cout << "], global_idx_local: [";
+    for (int tmp_counter=0; tmp_counter<nVertexDonor; tmp_counter++) {cout << global_idx_local[tmp_counter] << ", ";} 
+    cout << "]" << endl;
+		if (rank == 0) {
+			cout << "markDonor: " << markDonor << ", Buffer_Receive_GlobalPoint: [";
+			for (int tmp_i=0; tmp_i<nProcessor * MaxLocalVertex_Donor; tmp_i++) {
+				cout << Buffer_Receive_GlobalPoint[tmp_i] << ", ";
+			}
+			cout << "]" << endl;  
+		}
+    // PRINT_END
 
     /*--- Compute the closest point to a Near-Field boundary point ---*/
     maxdist = 0.0;
@@ -1371,19 +1423,19 @@ CRadialBasisFunction::~CRadialBasisFunction() {}
 
 void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 
-  int iProcessor, pProcessor, nProcessor;
+	int rank=MASTER_NODE, nProcessor=SINGLE_NODE;
+  int iProcessor, pProcessor;
   int markDonor, markTarget, Target_check, Donor_check;
 
   unsigned short iDim, nDim, iMarkerInt, nMarkerInt, iDonor;    
 
-  unsigned long nVertexDonor, nVertexTarget, Point_Target, jVertex, iVertexTarget;
+  unsigned long nVertexDonor, nVertexTarget, Point_Target, jVertex, iVertexTarget, nLocalVertex_Donor;
   unsigned long Global_Point_Donor, pGlobalPoint=0;
 
   su2double *Coord_i, Coord_j[3], dist, mindist, maxdist;
 
 #ifdef HAVE_MPI
 
-  int rank = MASTER_NODE;
   int *Buffer_Recv_mark=NULL, iRank;
   
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -1391,10 +1443,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
   
   if (rank == MASTER_NODE) 
     Buffer_Recv_mark = new int[nProcessor];
-
-#else
-
-  nProcessor = SINGLE_NODE;
 
 #endif
 
@@ -1479,157 +1527,348 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     Buffer_Receive_GlobalPoint = new unsigned long [ nProcessor * MaxLocalVertex_Donor ];
 
     /*-- Collect coordinates, global points, and normal vectors ---*/
-    Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim );
-
-    /*--- NEW_CODE_START ---*/	
-    bool *interpCoord;
-
-    int tmpCounter, numDonorPts;
-
-    unsigned long donorGlobalIdx;
-
-    su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon();
-    su2double *rbfCoord_i, *interfaceCoordLimits, *targetVec, *coeffVec;
-
-    SymmMatrix donorR;
-
+    Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim, nLocalVertex_Donor);
+    
+    /*--- NEW_CODE_PARALLEL_START ---*/
+    unsigned long nGlobalVertex_Donor, iLocalVertex_Donor_start, iLocalVertex_Donor_end, localR_size, tmp_counter=0, recv_localR_size;
+    unsigned long *nLocalVertex_Donor_arr, *localR_size_arr;
+    su2double rbfVal;
+    su2double *localR, *rbfCoord_i, *rbfCoord_j, *globalR_val_arr, *Buffer_recv_localR;
+    SymmMatrix globalR;
+    
+    #ifdef HAVE_MPI
+    cout << "rank: " << rank << ", Buffer_Send_GlobalPoint: [";
+    for (int iC=0; iC<nLocalVertex_Donor; iC++) {cout << Buffer_Send_GlobalPoint[iC] << ", ";}
+    cout << "], Buffer_Receive_GlobalPoint: ";
+    for (int iC=0; iC<nProcessor*MaxLocalVertex_Donor; iC++) {cout << Buffer_Receive_GlobalPoint[iC] << ", ";}
+    cout << "]" << endl;
+    #endif
+    
+    // Create array with information about number of local vertices in all processors
+    // Also calculate total number of donor vertices on boundary
+    nLocalVertex_Donor_arr = new unsigned long [nProcessor];
+    #ifdef HAVE_MPI
+    SU2_MPI::Allgather(&nLocalVertex_Donor, 1, MPI_UNSIGNED_LONG, nLocalVertex_Donor_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
+    SU2_MPI::Allreduce(&nLocalVertex_Donor, &nGlobalVertex_Donor, 1, MPI_UNSIGNED_LONG, MPI_SUM, MPI_COMM_WORLD);
+    #else
+    nLocalVertex_Donor_arr[SINGLE_NODE] = nLocalVertex_Donor;
+    nGlobalVertex_Donor = nLocalVertex_Donor;
+    #endif
+    
+    #ifdef HAVE_MPI
+    cout << "rank: " << rank << ", nLocalVertex_Donor_arr: [";
+    for (int iC=0;iC<nProcessor; iC++) {cout << nLocalVertex_Donor_arr[iC] << ", ";}
+    cout << "], nGlobalVertex_Donor: " << nGlobalVertex_Donor << endl;
+    #endif
+    
+		// Calculate number of vertices on boundary prior to current processor
+    iLocalVertex_Donor_start = 0;
+    iLocalVertex_Donor_end = 0;
+    for (unsigned long rbf_i=0; rbf_i<=rank; rbf_i++) {
+    	iLocalVertex_Donor_end += nLocalVertex_Donor_arr[rbf_i];
+    }
+    iLocalVertex_Donor_start = iLocalVertex_Donor_end - nLocalVertex_Donor;
+    
+    // Send information about size of localR array
+		localR_size = nLocalVertex_Donor*(nLocalVertex_Donor+1)/2 + nLocalVertex_Donor*(nGlobalVertex_Donor-iLocalVertex_Donor_end);
+    localR_size_arr = new unsigned long [nProcessor];
+    #ifdef HAVE_MPI
+    SU2_MPI::Allgather(&localR_size, 1, MPI_UNSIGNED_LONG, localR_size_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
+    #else
+    localR_size_arr[SINGLE_NODE] = localR_size;
+    #endif
+    
+    #ifdef HAVE_MPI
+    cout << "rank: " << rank << ", iLocalVertex_Donor_start: " << iLocalVertex_Donor_start << ", iLocalVertex_Donor_end: " << iLocalVertex_Donor_end << ", localR_size: " << localR_size << endl;
+    #endif
+    
+    // Initialize local R array and calculate values
+    localR = new su2double [localR_size];  
     rbfCoord_i = new su2double [nDim];
-    interfaceCoordLimits = new su2double [nDim*2];
-    interpCoord = new bool [nDim];
-	
-    // Fill R Matrix
-    donorR.Initialize(nVertexDonor+nDim+1);
-
-    for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
-
-	    jVertex = donor_geometry->vertex[markDonor][rbf_i]->GetNode();
-	
-	    // Write polynomial terms to R matrix
-	    donorR.Write(rbf_i, nVertexDonor, 1.0);
-      for (iDim = 0; iDim < nDim; iDim++) {
-        rbfCoord_i[iDim] = donor_geometry->node[jVertex]->GetCoord(iDim);
-        donorR.Write(rbf_i, nVertexDonor+iDim+1, rbfCoord_i[iDim]);
-
-        // Get coordinates limit on interface
-        if (rbf_i==0){
-	        interfaceCoordLimits[iDim*nDim] = rbfCoord_i[iDim];
-	        interfaceCoordLimits[iDim*nDim+1] = rbfCoord_i[iDim];
-	        interpCoord[iDim] = true;
-        }
-        else {
-	        interfaceCoordLimits[iDim*nDim] = \
-	        (rbfCoord_i[iDim]<interfaceCoordLimits[iDim*nDim]) ? \
-	        rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim];
-	
-	        interfaceCoordLimits[iDim*nDim+1] = \
-	        (rbfCoord_i[iDim]>interfaceCoordLimits[iDim*nDim+1]) ? \
-	        rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim+1];
-        }
-		
-      }
-
-	    for (unsigned long rbf_j=rbf_i; rbf_j<nVertexDonor; rbf_j++) {
-	
-        jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-          
-        // Calculate basis function
-        Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);
-        Get_RadialBasisValue(rbfVal, config[donorZone]);
-        
-        // Write to R matrix
-        donorR.Write(rbf_i, rbf_j, rbfVal);
-		
-	    }
-    }
-	  
-    // Check if there are any common coordinates among all the donor points
-    tmpCounter = 0;
-    for (iDim=0; iDim<nDim; iDim++) {
-      if ((interfaceCoordLimits[iDim*nDim+1]-interfaceCoordLimits[iDim*nDim]) < interfaceCoordTol) {
-        interpCoord[iDim] = false;
-        donorR.DeleteCol(nVertexDonor+iDim+1-tmpCounter);
-        tmpCounter++;
-      }
-    }
-    
-//    // REMOVE_START 
-//    donorR.Print();
-//    donorR.CalcInv(false);
-//    donorR.PrintInv();
-//    donorR.CheckInv();
-//    // REMOVE_END
-    
-    donorR.CalcInv(true);
-
-    targetVec = new su2double [donorR.GetSize()];
-    coeffVec = new su2double [nVertexDonor];
-	
-	  for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) {
-
-      // Get target node number
-      Point_Target = target_geometry->vertex[markTarget][iVertexTarget]->GetNode();
-      
-      // Get target point coordinates
-      targetVec[nVertexDonor] = 1.0;
-      tmpCounter=0;
-      for (iDim=0; iDim<nDim; iDim++) {
-      	rbfCoord_i[iDim] = target_geometry->node[Point_Target]->GetCoord(iDim);
-      	if (interpCoord[iDim]) {
-      	  targetVec[nVertexDonor+iDim+1-tmpCounter] = rbfCoord_i[iDim];
-      	}
-      	else {
-      		tmpCounter++;
-      	}
-      }
-      
-      // Iterate through donor points
-      numDonorPts = 0;
-      for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
-
-	      // Donor node number
-	      jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-
-	      // Calculate radial distance		    
-        Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);		    
-        Get_RadialBasisValue(rbfVal, config[donorZone]);
-        if (rbfVal > 0) { numDonorPts++; }
-        
-        // Write to vector
-	      targetVec[rbf_j] = rbfVal;
-	
-      }
-        
-    	// Calculate coefficient values
-    	donorR.VecMatMult(targetVec, coeffVec, nVertexDonor);
+    rbfCoord_j = new su2double [nDim];
+    tmp_counter=0;
+    cout << "rank: " << rank << ", localR: [";
+    for (unsigned long rbf_i=0; rbf_i<nLocalVertex_Donor; rbf_i++) {
+//    	iDonor = nLocalVertex_Donor_prior + rbf_i;
+    	for (iDim=0; iDim<nDim; iDim++) { rbfCoord_i[iDim] = Buffer_Send_Coord[rbf_i*nDim + iDim]; }
     	
-    	// Assign coefficient values
-    	target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(numDonorPts);
-		  target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo();
-		  tmpCounter = 0;
-    	for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
-    		
-    		if (targetVec[rbf_j] > 0) {
-    		
-      		jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-	
-		      donorGlobalIdx = donor_geometry->node[jVertex]->GetGlobalIndex();
-		
-		      target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(tmpCounter, donorGlobalIdx);
-		      target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(tmpCounter, 0);		  	
-      		target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(tmpCounter, coeffVec[rbf_j]);
-      		
-      		tmpCounter++;
-    		}
+    	for (unsigned long rbf_j=rbf_i; rbf_j<nLocalVertex_Donor; rbf_j++) { 
+	  		for (iDim=0; iDim<nDim; iDim++) { rbfCoord_j[iDim] = Buffer_Send_Coord[rbf_j*nDim + iDim]; }
+
+	    		Get_Distance(rbfCoord_i, rbfCoord_j, nDim, rbfVal);
+			    Get_RadialBasisValue(rbfVal, config[donorZone]);
+			    localR[tmp_counter] = rbfVal;
+			    tmp_counter++;
+	      
+	        cout << rbfVal << ", ";
+	        
+//	        cout << Buffer_Send_GlobalPoint[rbf_j] << ", ";
+	        
+    	 }
+			if (rank+1 < nProcessor ) {
+		  	for (iProcessor=rank+1; iProcessor<nProcessor; iProcessor++) {
+		  		for (unsigned long rbf_j=0; rbf_j<nLocalVertex_Donor_arr[iProcessor]; rbf_j++) {
+			  		for (iDim=0; iDim<nDim; iDim++) { rbfCoord_j[iDim] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+rbf_j)*nDim + iDim]; }    		
+							Get_Distance(rbfCoord_i, rbfCoord_j, nDim, rbfVal);
+						  Get_RadialBasisValue(rbfVal, config[donorZone]);
+						  localR[tmp_counter] = rbfVal;
+						  tmp_counter++;
+			        cout << rbfVal << ", ";
+			        
+//    	        cout << Buffer_Receive_GlobalPoint[iProcessor*MaxLocalVertex_Donor+rbf_j] << ", ";
+		  		}
+		  	}
     	}
     }
+    cout << "]" << endl;
+//    
+    #ifdef HAVE_MPI
+    if (rank != MASTER_NODE) {
+    	SU2_MPI::Send(localR, localR_size, MPI_DOUBLE, MASTER_NODE, 0, MPI_COMM_WORLD);
+    }
+    
+    if (rank == MASTER_NODE) {
+    
+    	globalR_val_arr = new su2double [nGlobalVertex_Donor*(nGlobalVertex_Donor+1)/2];
+    	
+    	// Copy master node localR to globalR
+    	tmp_counter = 0;
+    	for (unsigned long rbf_i=0; rbf_i<localR_size; rbf_i++) {
+    		globalR_val_arr[tmp_counter] = localR[rbf_i];
+    		tmp_counter++;
+    	}
+    	
+    	// Receive localR from various processors
+			if (nProcessor > SINGLE_NODE) {
+		  	for (int rbf_i=1; rbf_i<nProcessor; rbf_i++) {
+			  	Buffer_recv_localR = new su2double[localR_size_arr[rbf_i]];
+			  	SU2_MPI::Recv(Buffer_recv_localR, localR_size_arr[rbf_i], MPI_DOUBLE, rbf_i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			  	
+			  	// Copy processor's localR to globalR
+			  	for (unsigned long rbf_j=0; rbf_j<localR_size_arr[rbf_i]; rbf_j++) {
+			  		globalR_val_arr[tmp_counter] = Buffer_recv_localR[rbf_j];
+			  		tmp_counter++;
+			  	}
+			  	
+			  	delete [] Buffer_recv_localR;
+		  	}
+    	}
+    	
+    	// Initialize symmetric matrix
+    	globalR.Initialize(nGlobalVertex_Donor, globalR_val_arr);
+    	globalR_val_arr = NULL;
+    	
+	    globalR.Print();
+    	
+    }
+    #else
+    globalR.Initialize(nLocalVertex_Donor, localR);
+    #endif
+    
 
-	  delete [] rbfCoord_i;
-	  delete [] interfaceCoordLimits;
-	  delete [] interpCoord;
-  	delete [] targetVec;
-  	delete [] coeffVec;
-  	
-	  /*--- NEW_CODE_END ---*/
+    
+    delete [] nLocalVertex_Donor_arr;
+    delete [] localR_size_arr;
+    delete [] localR;
+    delete [] rbfCoord_i;
+    delete [] rbfCoord_j;
+    
+    /*--- NEW_CODE_PARALLEL_END ---*/
+    
+    /*--- TEMP_NEAREST_NEIGHBOUR_START ---*/
+    /*--- Compute the closest point to a Near-Field boundary point ---*/
+    maxdist = 0.0;
+
+    for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) {
+
+      Point_Target = target_geometry->vertex[markTarget][iVertexTarget]->GetNode();
+
+      if ( target_geometry->node[Point_Target]->GetDomain() ) {
+
+        target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(1);
+        target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo(); // Possible meme leak?
+
+        /*--- Coordinates of the boundary point ---*/
+        Coord_i = target_geometry->node[Point_Target]->GetCoord();
+
+        mindist    = 1E6; 
+        pProcessor = 0;
+
+        /*--- Loop over all the boundaries to find the pair ---*/
+
+        for (iProcessor = 0; iProcessor < nProcessor; iProcessor++) {
+          for (jVertex = 0; jVertex < MaxLocalVertex_Donor; jVertex++) {
+            Global_Point_Donor = iProcessor*MaxLocalVertex_Donor+jVertex;
+
+            /*--- Compute the dist ---*/
+            dist = 0.0; 
+            for (iDim = 0; iDim < nDim; iDim++) {
+              Coord_j[iDim] = Buffer_Receive_Coord[ Global_Point_Donor*nDim+iDim];
+              dist += pow(Coord_j[iDim] - Coord_i[iDim], 2.0);
+            }
+
+            if (dist < mindist) {
+              mindist = dist; pProcessor = iProcessor; pGlobalPoint = Buffer_Receive_GlobalPoint[Global_Point_Donor];
+            }
+
+            if (dist == 0.0) break;
+          }
+
+        } 
+
+        /*--- Store the value of the pair ---*/
+        maxdist = max(maxdist, mindist);
+        target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(iDonor, pGlobalPoint);
+        target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(iDonor, pProcessor);
+        target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(iDonor, 1.0);
+      }
+    }
+    
+    
+    /*--- TEMP_NEAREST_NEIGHBOUR_END ---*/
+
+//    /*--- NEW_CODE_SERIAL_START ---*/	
+//    bool *interpCoord;
+
+//    int tmpCounter, numDonorPts;
+
+//    unsigned long donorGlobalIdx;
+
+//    su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon();
+//    su2double *rbfCoord_i, *interfaceCoordLimits, *targetVec, *coeffVec;
+
+//    SymmMatrix donorR;
+
+//    rbfCoord_i = new su2double [nDim];
+//    interfaceCoordLimits = new su2double [nDim*2];
+//    interpCoord = new bool [nDim];
+//	
+//    // Fill R Matrix
+//    donorR.Initialize(nVertexDonor+nDim+1);
+
+//    for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
+
+//	    jVertex = donor_geometry->vertex[markDonor][rbf_i]->GetNode();
+//	
+//	    // Write polynomial terms to R matrix
+//	    donorR.Write(rbf_i, nVertexDonor, 1.0);
+//      for (iDim = 0; iDim < nDim; iDim++) {
+//        rbfCoord_i[iDim] = donor_geometry->node[jVertex]->GetCoord(iDim);
+//        donorR.Write(rbf_i, nVertexDonor+iDim+1, rbfCoord_i[iDim]);
+
+//        // Get coordinates limit on interface
+//        if (rbf_i==0){
+//	        interfaceCoordLimits[iDim*nDim] = rbfCoord_i[iDim];
+//	        interfaceCoordLimits[iDim*nDim+1] = rbfCoord_i[iDim];
+//	        interpCoord[iDim] = true;
+//        }
+//        else {
+//	        interfaceCoordLimits[iDim*nDim] = \
+//	        (rbfCoord_i[iDim]<interfaceCoordLimits[iDim*nDim]) ? \
+//	        rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim];
+//	
+//	        interfaceCoordLimits[iDim*nDim+1] = \
+//	        (rbfCoord_i[iDim]>interfaceCoordLimits[iDim*nDim+1]) ? \
+//	        rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim+1];
+//        }
+//		
+//      }
+
+//	    for (unsigned long rbf_j=rbf_i; rbf_j<nVertexDonor; rbf_j++) {
+//	
+//        jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
+//          
+//        // Calculate basis function
+//        Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);
+//        Get_RadialBasisValue(rbfVal, config[donorZone]);
+//        
+//        // Write to R matrix
+//        donorR.Write(rbf_i, rbf_j, rbfVal);
+//		
+//	    }
+//    }
+//	  
+//    // Check if there are any common coordinates among all the donor points
+//    tmpCounter = 0;
+//    for (iDim=0; iDim<nDim; iDim++) {
+//      if ((interfaceCoordLimits[iDim*nDim+1]-interfaceCoordLimits[iDim*nDim]) < interfaceCoordTol) {
+//        interpCoord[iDim] = false;
+//        donorR.DeleteCol(nVertexDonor+iDim+1-tmpCounter);
+//        tmpCounter++;
+//      }
+//    }
+//    
+//    donorR.CalcInv(true);
+
+//    targetVec = new su2double [donorR.GetSize()];
+//    coeffVec = new su2double [nVertexDonor];
+//	
+//	  for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) {
+
+//      // Get target node number
+//      Point_Target = target_geometry->vertex[markTarget][iVertexTarget]->GetNode();
+//      
+//      // Get target point coordinates
+//      targetVec[nVertexDonor] = 1.0;
+//      tmpCounter=0;
+//      for (iDim=0; iDim<nDim; iDim++) {
+//      	rbfCoord_i[iDim] = target_geometry->node[Point_Target]->GetCoord(iDim);
+//      	if (interpCoord[iDim]) {
+//      	  targetVec[nVertexDonor+iDim+1-tmpCounter] = rbfCoord_i[iDim];
+//      	}
+//      	else {
+//      		tmpCounter++;
+//      	}
+//      }
+//      
+//      // Iterate through donor points
+//      numDonorPts = 0;
+//      for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
+
+//	      // Donor node number
+//	      jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
+
+//	      // Calculate radial distance		    
+//        Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);		    
+//        Get_RadialBasisValue(rbfVal, config[donorZone]);
+//        if (rbfVal > 0) { numDonorPts++; }
+//        
+//        // Write to vector
+//	      targetVec[rbf_j] = rbfVal;
+//	
+//      }
+//        
+//    	// Calculate coefficient values
+//    	donorR.VecMatMult(targetVec, coeffVec, nVertexDonor);
+//    	
+//    	// Assign coefficient values
+//    	target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(numDonorPts);
+//		  target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo();
+//		  tmpCounter = 0;
+//    	for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
+//    		
+//    		if (targetVec[rbf_j] > 0) {
+//    		
+//      		jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
+//	
+//		      donorGlobalIdx = donor_geometry->node[jVertex]->GetGlobalIndex();
+//		
+//		      target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(tmpCounter, donorGlobalIdx);
+//		      target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(tmpCounter, 0);	
+//      		target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(tmpCounter, coeffVec[rbf_j]);
+//      		
+//      		tmpCounter++;
+//    		}
+//    	}
+//    }
+
+//	  delete [] rbfCoord_i;
+//	  delete [] interfaceCoordLimits;
+//	  delete [] interpCoord;
+//  	delete [] targetVec;
+//  	delete [] coeffVec;
+//  	
+//	  /*--- NEW_CODE_SERIAL_END ---*/
 
     delete[] Buffer_Send_Coord;
     delete[] Buffer_Send_GlobalPoint;
@@ -1722,6 +1961,17 @@ void SymmMatrix::Initialize(int N)
 	num_val = sz*(sz+1)/2;
 	val_vec = new double [num_val];
 	for (i=0; i<num_val; i++){val_vec[i] = 0.0;}
+	
+	initialized = true;
+}
+
+void SymmMatrix::Initialize(int N, double *formed_val_vec)
+{
+	int i;
+	
+	sz = N;	
+	num_val = sz*(sz+1)/2;
+	val_vec = formed_val_vec;
 	
 	initialized = true;
 }

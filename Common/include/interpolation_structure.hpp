@@ -135,6 +135,8 @@ public:
    */
   void Determine_ArraySize(bool faces, int markDonor, int markTarget, unsigned long nVertexDonor, unsigned short nDim);
 
+	void Collect_VertexInfo(bool faces, int markDonor, int markTarget, unsigned long nVertexDonor, unsigned short nDim, unsigned long &nLocalVertex_Donor);
+
   /*!
    * \brief Collect and communicate vertex info: coord, global point, and if faces=true the normal vector
    * \param[in] faces - boolean that determines whether or not to set face information as well
@@ -144,8 +146,7 @@ public:
    * \param[in] nDim - number of physical dimensions.
    */
   void Collect_VertexInfo(bool faces, int markDonor, int markTarget, unsigned long nVertexDonor, unsigned short nDim);
-
-
+  
 };
 
 /*!
@@ -318,6 +319,7 @@ class SymmMatrix{
 		~SymmMatrix();
 		
 		void Initialize(int N);
+		void Initialize(int N, double *formed_val_vec);
 		
 		inline int GetSize() { return sz; }
 		inline int GetNumDelCol() { return num_del_col; }
