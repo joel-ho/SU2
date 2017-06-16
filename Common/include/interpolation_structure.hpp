@@ -40,6 +40,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <stdexcept>
 
 #include "config_structure.hpp"
 #include "geometry_structure.hpp"
@@ -305,12 +306,18 @@ class SymmMatrix{
 		
 		/*--- Variables ---*/
 		bool initialized, inversed;
-		int sz, num_val, decomposed, num_del_col;
-		int *deleted_col;
+		int sz, num_val, num_del_col;
+		int *deleted_col, *perm_vec;
 		double *val_vec, *decompose_vec, *inv_val_vec;
 		
+		enum DecompositionType { none, cholesky, ldl, lu };
+		
+		DecompositionType decomposed;
+		
 		/*--- Methods ---*/
-		int CalcIdx(int i, int j);
+		inline int CalcIdx(int i, int j);
+		inline int CalcIdxFull(int i, int j);
+		double ReadD(int i);
 
 	public:
 	
@@ -325,18 +332,20 @@ class SymmMatrix{
 		inline int GetNumDelCol() { return num_del_col; }
 		
 		void Write(int i, int j, double val);
+		double Read(int i, int j);
 		
-		void LDLT(bool overwrite);
-		void Chol(bool overwrite);
+		void Chol(bool overwrite);		
+		void LDL(bool overwrite);
+		void LU();
 		void CalcInv(bool overwrite);
 		
-		double Read(int i, int j);
 		double ReadL(int i, int j);
-		double ReadD(int i);
+		double ReadU(int i, int j);
 		double ReadInv(int i,int j);
 		
 		void Print();
 		void PrintInv();
+		void PrintLU();
 		void CheckInv();
 		
 		void DeleteCol(int i);

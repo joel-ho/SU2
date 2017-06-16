@@ -1530,20 +1530,21 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim, nLocalVertex_Donor);
     
     /*--- NEW_CODE_PARALLEL_START ---*/
-    int nCalc, *calcDim;
+    int nCalc;
+    int *calcDim;
     unsigned long nGlobalVertex_Donor, iLocalVertex_Donor_start, iLocalVertex_Donor_end, localM_size, tmp_counter=0, recv_localM_size, tmp_counter_two=0, donorGlobalIdx;
     unsigned long *nLocalVertex_Donor_arr, *localM_size_arr;
-    su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon(), tmp_val_one, tmp_val_two;
+    su2double rbfVal, interfaceCoordTol=1e2*numeric_limits<double>::epsilon(), tmp_val_one, tmp_val_two;
     su2double *localM, *rbfCoord_i, *rbfCoord_j, *globalM_val_arr, *Buffer_recv_localM, *globalP, *globalP_limits, *globalP_tmp, *C_inv_trunc, *C_tmp, *tmp_target_vec, *tmp_coeff_vec;
     SymmMatrix *globalM, *Mp;
     
-    #ifdef HAVE_MPI
-    cout << "rank: " << rank << ", Buffer_Send_GlobalPoint: [";
-    for (int iC=0; iC<nLocalVertex_Donor; iC++) {cout << Buffer_Send_GlobalPoint[iC] << ", ";}
-    cout << "], Buffer_Receive_GlobalPoint: ";
-    for (int iC=0; iC<nProcessor*MaxLocalVertex_Donor; iC++) {cout << Buffer_Receive_GlobalPoint[iC] << ", ";}
-    cout << "]" << endl;
-    #endif
+//    #ifdef HAVE_MPI
+//    cout << "rank: " << rank << ", Buffer_Send_GlobalPoint: [";
+//    for (int iC=0; iC<nLocalVertex_Donor; iC++) {cout << Buffer_Send_GlobalPoint[iC] << ", ";}
+//    cout << "], Buffer_Receive_GlobalPoint: ";
+//    for (int iC=0; iC<nProcessor*MaxLocalVertex_Donor; iC++) {cout << Buffer_Receive_GlobalPoint[iC] << ", ";}
+//    cout << "]" << endl;
+//    #endif
     
     // Create array with information about number of local vertices in all processors
     // Also calculate total number of donor vertices on boundary
@@ -1556,11 +1557,11 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     nGlobalVertex_Donor = nLocalVertex_Donor;
     #endif
     
-    #ifdef HAVE_MPI
-    cout << "rank: " << rank << ", nLocalVertex_Donor_arr: [";
-    for (int iC=0;iC<nProcessor; iC++) {cout << nLocalVertex_Donor_arr[iC] << ", ";}
-    cout << "], nGlobalVertex_Donor: " << nGlobalVertex_Donor << endl;
-    #endif
+//    #ifdef HAVE_MPI
+//    cout << "rank: " << rank << ", nLocalVertex_Donor_arr: [";
+//    for (int iC=0;iC<nProcessor; iC++) {cout << nLocalVertex_Donor_arr[iC] << ", ";}
+//    cout << "], nGlobalVertex_Donor: " << nGlobalVertex_Donor << endl;
+//    #endif
     
 		// Calculate number of vertices on boundary prior to current processor
     iLocalVertex_Donor_start = 0;
@@ -1579,16 +1580,16 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     localM_size_arr[SINGLE_NODE] = localM_size;
     #endif
     
-    #ifdef HAVE_MPI
-    cout << "rank: " << rank << ", iLocalVertex_Donor_start: " << iLocalVertex_Donor_start << ", iLocalVertex_Donor_end: " << iLocalVertex_Donor_end << ", localM_size: " << localM_size << endl;
-    #endif
+//    #ifdef HAVE_MPI
+//    cout << "rank: " << rank << ", iLocalVertex_Donor_start: " << iLocalVertex_Donor_start << ", iLocalVertex_Donor_end: " << iLocalVertex_Donor_end << ", localM_size: " << localM_size << endl;
+//    #endif
     
     // Initialize local M array and calculate values
     localM = new su2double [localM_size];  
     rbfCoord_i = new su2double [nDim];
     rbfCoord_j = new su2double [nDim];
     tmp_counter=0;
-    cout << "rank: " << rank << ", localM: [";
+//    cout << "rank: " << rank << ", localM: [";
     for (unsigned long rbf_i=0; rbf_i<nLocalVertex_Donor; rbf_i++) {
 //    	iDonor = nLocalVertex_Donor_prior + rbf_i;
     	for (iDim=0; iDim<nDim; iDim++) { rbfCoord_i[iDim] = Buffer_Send_Coord[rbf_i*nDim + iDim]; }
@@ -1601,7 +1602,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 			    localM[tmp_counter] = rbfVal;
 			    tmp_counter++;
 	      
-	        cout << rbfVal << ", ";
+//	        cout << rbfVal << ", ";
 	        
 //	        cout << Buffer_Send_GlobalPoint[rbf_j] << ", ";
 	        
@@ -1614,14 +1615,14 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 						  Get_RadialBasisValue(rbfVal, config[donorZone]);
 						  localM[tmp_counter] = rbfVal;
 						  tmp_counter++;
-			        cout << rbfVal << ", ";
+//			        cout << rbfVal << ", ";
 			        
 //    	        cout << Buffer_Receive_GlobalPoint[iProcessor*MaxLocalVertex_Donor+rbf_j] << ", ";
 		  		}
 		  	}
     	}
     }
-    cout << "]" << endl;
+//    cout << "]" << endl;
 //    
     #ifdef HAVE_MPI
     if (rank != MASTER_NODE) {
@@ -1660,7 +1661,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	globalM->Initialize(nGlobalVertex_Donor, globalM_val_arr);
     	globalM_val_arr = NULL;
     	
-	    globalM->Print();
+//	    globalM->Print();
 	    
     }
     #else
@@ -1671,7 +1672,20 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     // Invert M matrix
     if (rank == MASTER_NODE)
     {
-    	globalM->Chol(true);
+    	switch (config[donorZone]->GetKindRadialBasisFunction())
+    	{
+				case WENDLAND_C2:
+				case INV_MULTI_QUADRIC:
+				case GAUSSIAN:
+					globalM->Chol(true);
+					break;
+					
+				case THIN_PLATE_SPLINE:
+				case MULTI_QUADRIC:
+					globalM->LU();
+					break;
+			}
+			
 	    globalM->CalcInv(true);
     }
     
@@ -1728,17 +1742,17 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 				}
 			}
 			
-			cout << "globalP: [";
-			for (int iC=0; iC<nGlobalVertex_Donor*(nDim+1); iC++) {cout << globalP[iC] << ", ";}
-			cout << "]" << endl;
-			
-			cout << "globalP_limits: [";
-			for (int iC=0; iC<nDim*2; iC++) {cout << globalP_limits[iC] << ", ";}
-			cout << "]" << endl;
-			
-			cout << "calcDim:[ ";
-			for (int iC=0; iC<nDim; iC++) {cout << calcDim[iC] << ", ";}
-			cout << "]" << endl;
+//			cout << "globalP: [";
+//			for (int iC=0; iC<nGlobalVertex_Donor*(nDim+1); iC++) {cout << globalP[iC] << ", ";}
+//			cout << "]" << endl;
+//			
+//			cout << "globalP_limits: [";
+//			for (int iC=0; iC<nDim*2; iC++) {cout << globalP_limits[iC] << ", ";}
+//			cout << "]" << endl;
+//			
+//			cout << "calcDim:[ ";
+//			for (int iC=0; iC<nDim; iC++) {cout << calcDim[iC] << ", ";}
+//			cout << "]" << endl;
 			
 			if (nCalc < nDim)
 			{
@@ -1763,9 +1777,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 				globalP = globalP_tmp;
 				globalP_tmp = NULL;
 				
-				cout << "globalP_new: [";
-				for (int iC=0; iC<tmp_counter; iC++) {cout << globalP[iC] << ", ";}
-				cout << "]" << endl;
+//				cout << "globalP_new: [";
+//				for (int iC=0; iC<tmp_counter; iC++) {cout << globalP[iC] << ", ";}
+//				cout << "]" << endl;
 
 				
 				
@@ -1805,7 +1819,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	
     	Mp->CalcInv(true);
     	
-    	Mp->Print();
+//    	Mp->Print();
     	
     	// Calculate M_p*P*M_inv
     	C_inv_trunc = new su2double [(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor];
@@ -1827,9 +1841,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     		}  		
     	}
     	
-    	cout << "MpPM_inv: [";
-    	for (int iC=0; iC<nGlobalVertex_Donor*(nCalc+1); iC++) {cout << C_inv_trunc[iC] << ", ";}
-    	cout << "]" << endl;
+//    	cout << "MpPM_inv: [";
+//    	for (int iC=0; iC<nGlobalVertex_Donor*(nCalc+1); iC++) {cout << C_inv_trunc[iC] << ", ";}
+//    	cout << "]" << endl;
     	
     	// Calculate (I - P'*M_p*P*M_inv)
     	C_tmp = new su2double [nGlobalVertex_Donor*nGlobalVertex_Donor];
@@ -1849,16 +1863,16 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     		}
     	}
     	
-    	cout << "C_tmp: [";
-    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
-    	cout << "]" << endl;
+//    	cout << "C_tmp: [";
+//    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
+//    	cout << "]" << endl;
     	
     	// Calculate M_inv*(I - P'*M_p*P*M_inv)
     	globalM->SymmMatMatMult(C_tmp, nGlobalVertex_Donor, true);
     	
-    	cout << "C_tmp (after multiplying): [";
-    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
-    	cout << "]" << endl;
+//    	cout << "C_tmp (after multiplying): [";
+//    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
+//    	cout << "]" << endl;
     	
     	// Write to C_inv_trunc matrix
     	for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
@@ -1869,9 +1883,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     		}
     	}
     	
-    	cout << "C_inv_trunc: [";
-    	for (int iC=0; iC<(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor; iC++) {cout << C_inv_trunc[iC] << ", ";}
-    	cout << "]" << endl;
+//    	cout << "C_inv_trunc: [";
+//    	for (int iC=0; iC<(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor; iC++) {cout << C_inv_trunc[iC] << ", ";}
+//    	cout << "]" << endl;
     	
     	
     	
@@ -1889,9 +1903,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
   	SU2_MPI::Bcast(C_inv_trunc, (nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor, MPI_DOUBLE, MASTER_NODE, MPI_COMM_WORLD);
     #endif
     
-    cout << "rank: " << rank << ", C_inv_trunc: [";
-    for (int iC=0; iC<(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor; iC++) {cout << C_inv_trunc[iC] << ", ";}
-  	cout << "]" << endl;
+//    cout << "rank: " << rank << ", C_inv_trunc: [";
+//    for (int iC=0; iC<(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor; iC++) {cout << C_inv_trunc[iC] << ", ";}
+//  	cout << "]" << endl;
     
     tmp_target_vec = new su2double [nGlobalVertex_Donor+nCalc+1];
     tmp_coeff_vec = new su2double [nGlobalVertex_Donor];
@@ -1931,9 +1945,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  		}
 		  	}
 		  	
-		  	cout << "rank: " << rank << ", tmp_target_vec: [";
-				for (int iC=0; iC<nGlobalVertex_Donor+nCalc+1; iC++) {cout << tmp_target_vec[iC] << ", ";}
-				cout << "]" << endl;
+//		  	cout << "rank: " << rank << ", tmp_target_vec: [";
+//				for (int iC=0; iC<nGlobalVertex_Donor+nCalc+1; iC++) {cout << tmp_target_vec[iC] << ", ";}
+//				cout << "]" << endl;
 		  	
 		  	for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
 		  	{
@@ -1944,14 +1958,14 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  		}
 		  	}
 				
-				cout << "rank: " << rank << ", tmp_coeff_vec: [";
-				for (int iC=0; iC<nGlobalVertex_Donor; iC++) {cout << tmp_coeff_vec[iC] << ", ";}
-				cout << "]" << endl;
+//				cout << "rank: " << rank << ", tmp_coeff_vec: [";
+//				for (int iC=0; iC<nGlobalVertex_Donor; iC++) {cout << tmp_coeff_vec[iC] << ", ";}
+//				cout << "]" << endl;
 				
 		  	tmp_counter = 0;
 		  	for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
 		  	{
-		  		if (tmp_coeff_vec[rbf_i] != 0)
+		  		if ( tmp_coeff_vec[rbf_i] != 0 ) // ( abs(tmp_coeff_vec[rbf_i]) > interfaceCoordTol )
 		  		{
 		  			tmp_counter++;
 		  		}
@@ -1965,7 +1979,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  	{
 		  		for (unsigned long rbf_i=0; rbf_i<nLocalVertex_Donor_arr[iProcessor]; rbf_i++)
 		  		{
-		  			if (tmp_coeff_vec[tmp_counter] != 0)
+		  			if ( tmp_coeff_vec[tmp_counter] != 0 ) // ( abs(tmp_coeff_vec[tmp_counter]) > interfaceCoordTol )
 						{
 							donorGlobalIdx = Buffer_Receive_GlobalPoint[iProcessor*MaxLocalVertex_Donor+rbf_i];
 						  target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(tmp_counter_two, donorGlobalIdx);
@@ -2237,25 +2251,34 @@ void CRadialBasisFunction::Get_Distance(su2double *coord_i, CGeometry *geometry_
 
 void CRadialBasisFunction::Get_RadialBasisValue(su2double &dist, CConfig *config)
 {	
-	switch (config->GetKindRadialBasis()) {
+	switch (config->GetKindRadialBasisFunction()) {
 		case WENDLAND_C2:
-		  dist /= config->GetBasisFunctionRadius();
+		  dist /= config->GetRadialBasisFunctionParameter();
 		  dist = (dist<1) ? pow((1-dist), 4)*(4*dist+1) : 0;
 		break;
 			
-		case INV_MULTI_QUARTIC:
-	    dist = 1/sqrt(dist*dist + pow(config->GetBasisFunctionRadius(), 2));
+		case INV_MULTI_QUADRIC:
+	    dist = 1/sqrt(dist*dist + \
+	    	(config->GetRadialBasisFunctionParameter())* \
+	    	(config->GetRadialBasisFunctionParameter()));
+		break;
+		
+		case GAUSSIAN:
+		  dist /= config->GetRadialBasisFunctionParameter();
+		  dist = exp(-dist*dist);
 		break;
 			
 		case THIN_PLATE_SPLINE:
-		  dist /= config->GetBasisFunctionRadius();
+		  dist /= config->GetRadialBasisFunctionParameter();
 		  dist = (dist>0) ? dist*dist*log(dist) : 0;
 		break;
-			
-		case GAUSSIAN:
-		  dist /= config->GetBasisFunctionRadius();
-		  dist = exp(-dist*dist);
+		
+		case MULTI_QUADRIC:
+	    dist = sqrt(dist*dist + \
+	    	(config->GetRadialBasisFunctionParameter())* \
+	    	(config->GetRadialBasisFunctionParameter()));
 		break;
+		
 	}
 }
 
@@ -2264,22 +2287,24 @@ SymmMatrix::SymmMatrix()
 {
 	initialized = false;
 	inversed = false;
+	decomposed = none;
 	
-	decomposed = 0;
 	num_del_col = 0;
 	
 	val_vec = NULL;
 	decompose_vec = NULL;
 	inv_val_vec = NULL;
 	deleted_col = NULL;
+	perm_vec = NULL;
 }
 
 SymmMatrix::~SymmMatrix()
 {
-	delete [] val_vec;
-	delete [] decompose_vec;
-	delete [] inv_val_vec;
-	delete [] deleted_col;
+	if ( val_vec ) { delete [] val_vec; }
+	if ( decompose_vec ) { delete [] decompose_vec; }
+	if ( inv_val_vec ) { delete [] inv_val_vec; }
+	if ( deleted_col ) { delete [] deleted_col; }
+	if ( perm_vec ) { delete [] perm_vec; }
 }
 
 void SymmMatrix::Initialize(int N)
@@ -2305,7 +2330,7 @@ void SymmMatrix::Initialize(int N, double *formed_val_vec)
 	initialized = true;
 }
 
-int SymmMatrix::CalcIdx(int i, int j)
+inline int SymmMatrix::CalcIdx(int i, int j)
 {	
 	if (deleted_col) {
 		for (int k=num_del_col-1; k>=0; k--) {
@@ -2318,12 +2343,19 @@ int SymmMatrix::CalcIdx(int i, int j)
 		}
 	}
 
-	if (i >= j) {
-		return i + (2*(sz+num_del_col)-j-1)*j/2;
-	}
-	else {
-		return j + (2*(sz+num_del_col)-i-1)*i/2;
-	}
+//	if (i >= j) {
+//		return i + (2*(sz+num_del_col)-j-1)*j/2;
+//	}
+//	else {
+//		return j + (2*(sz+num_del_col)-i-1)*i/2;
+//	}
+
+	return max(i, j) + (2*(sz+num_del_col)-min(i, j)-1)*min(i, j)/2;
+}
+
+inline int SymmMatrix::CalcIdxFull(int i, int j)
+{
+	return i*sz + j;
 }
 
 void SymmMatrix::Write(int i, int j, double val)
@@ -2337,7 +2369,7 @@ void SymmMatrix::Write(int i, int j, double val)
 	val_vec[CalcIdx(i, j)] = val;
 }
 
-void SymmMatrix::LDLT(bool overwrite)
+void SymmMatrix::LDL(bool overwrite)
 {
 	int i, j, k;
 	double *vec, sum;
@@ -2381,7 +2413,7 @@ void SymmMatrix::LDLT(bool overwrite)
 		}
 	}
 	
-	decomposed = 1;
+	decomposed = ldl;
 	
 }
 
@@ -2425,85 +2457,236 @@ void SymmMatrix::Chol(bool overwrite)
 		}
 	}
 	
-	decomposed = 2;
+	decomposed = cholesky;
+	
+}
+
+void SymmMatrix::LU()
+{
+	bool interchange_row;
+	int i, j, k, pivot_idx, tmp_perm_idx;
+	double pivot, *tmp_row;
+	
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	
+	/*--- Copy matrix values to LU matrix ---*/
+	decompose_vec = new double [sz*sz];
+	perm_vec = new int [sz];
+	for (i=0; i<sz; i++) {
+		for (j=i; j<sz; j++) {
+			decompose_vec[CalcIdxFull(i, j)] = val_vec[CalcIdx(i, j)];
+			decompose_vec[CalcIdxFull(j, i)] = decompose_vec[CalcIdxFull(i, j)];
+		}
+		perm_vec[i] = i;
+	}
+	
+	/*--- Decompose LU matrix ---*/
+	tmp_row = new double [sz];
+	for (j=0; j<sz-1; j++) {
+	
+		/*--- Search for pivot and interchange rows ---*/
+		interchange_row = false;
+		pivot = decompose_vec[CalcIdxFull(j, j)];
+		pivot_idx = j;
+		for ( i=j+1; i<sz; i++ ) {
+			if ( abs(decompose_vec[CalcIdxFull(i, j)]) > abs(pivot) ) {
+				pivot = decompose_vec[CalcIdxFull(i, j)];
+				pivot_idx = i;
+				interchange_row = true;
+			}
+		}
+		
+		if ( interchange_row ) {
+			
+			for ( k=0; k<sz; k++ ) {
+				tmp_row[k] = decompose_vec[CalcIdxFull(j, k)];
+				decompose_vec[CalcIdxFull(j, k)] = \
+					decompose_vec[CalcIdxFull(pivot_idx, k)];
+				decompose_vec[CalcIdxFull(pivot_idx, k)] = tmp_row[k];
+			}
+			
+			tmp_perm_idx = perm_vec[j];
+			perm_vec[j] = perm_vec[pivot_idx];
+			perm_vec[pivot_idx] = tmp_perm_idx;
+			
+		}
+		
+		/*--- Perform elimination ---*/
+		for ( k=j+1; k<sz; k++ ) {
+			decompose_vec[CalcIdxFull(k, j)] /= pivot;
+		}
+		
+		for ( k=j+1; k<sz; k++ ) {
+			for (i=j+1; i<sz; i++) {
+				decompose_vec[CalcIdxFull(i, k)] -= \
+					decompose_vec[CalcIdxFull(j, k)]*decompose_vec[CalcIdxFull(i, j)];
+			}
+		}
+		
+	}
+	
+	delete [] tmp_row;
+	
+	decomposed = lu;
 	
 }
 
 void SymmMatrix::CalcInv(bool overwrite)
 {
 	int i, j, k, shift;
-	double *vec, sum;
+	double *vec, sum, *write_vec;
 	
-	if (! initialized) {
+	if ( ! initialized ) {
 		throw invalid_argument("Matrix not initialized.");
 	}
 	
-	/*--- Initialize inverse matrix ---*/
-	inv_val_vec = new double [num_val];
-	for (i=0; i<num_val; i++){inv_val_vec[i] = 0.0;}
-	
 	/*--- Decompose matrix if not already done ---*/
-	if (decomposed == 0) {LDLT(overwrite);}
+	if ( decomposed == none ) { LU(); }
 	
-	/*--- Point to correct vector ---*/
-	if (decompose_vec) { vec = decompose_vec; }
-	else { vec = val_vec; }
+	/*--- Calculate inverse from decomposed matrices ---*/
+	switch ( decomposed ) {
 	
-	/*---        Calculate L inverse       ---*/
-	/*--- Solve smaller and smaller system ---*/
-	for (j=sz; j>0; j--) {
+		case cholesky:
+		case ldl:
 		
-		shift = sz-j;
-		inv_val_vec[CalcIdx(shift, shift)] = 1.0;
+			/*--- Point to correct vector ---*/
+			if ( decompose_vec ) { vec = decompose_vec; }
+			else { vec = val_vec; }
+	
+			/*--- Initialize inverse matrix ---*/
+			inv_val_vec = new double [num_val];
+			for (i=0; i<num_val; i++){inv_val_vec[i] = 0.0;}
+	
+			/*---        Calculate L inverse       ---*/
+			/*--- Solve smaller and smaller system ---*/
+			for (j=sz; j>0; j--) {
 		
-		/*--- Forward substitution ---*/
-		for (i=shift; i<sz; i++) {
+				shift = sz-j;
+				inv_val_vec[CalcIdx(shift, shift)] = 1.0;
 		
-			if (i==shift) {
-				inv_val_vec[CalcIdx(i, i)] = 1/ReadL(i, i);
+				/*--- Forward substitution ---*/
+				for (i=shift; i<sz; i++) {
+		
+					if (i==shift) {
+						inv_val_vec[CalcIdx(i, i)] = 1/ReadL(i, i);
+					}
+					else {
+						sum = 0;
+						for (k=shift; k<i; k++) {
+							if (k<i) {
+								sum += vec[CalcIdx(i, k)]*inv_val_vec[CalcIdx(k, shift)];
+							}
+						}
+						inv_val_vec[CalcIdx(i, shift)] = -sum/ReadL(i, i);
+					}
+			
+				}
+		
+			} // L inverse in inv_val_vec
+	
+			/*--- Multiply inversed matrices ---*/
+			for (j=0; j<sz; j++) {
+				for (i=j; i<sz; i++) {
+		
+					sum = 0.0;
+					for (k=i; k<sz; k++) {
+						sum += inv_val_vec[CalcIdx(k, i)]*inv_val_vec[CalcIdx(k, j)]/ReadD(k);
+					}
+					vec[CalcIdx(i, j)] = sum;
+			
+				}
+			} // Inverse values in vec
+	
+			/*--- Memory management ---*/
+			delete [] inv_val_vec;
+			inv_val_vec = NULL;
+	
+			if (decompose_vec && ! overwrite) {
+				inv_val_vec = decompose_vec;
 			}
-			else {
-				sum = 0;
-				for (k=shift; k<i; k++) {
-					if (k<i) {
-						sum += vec[CalcIdx(i, k)]*inv_val_vec[CalcIdx(k, shift)];
+			else if (decompose_vec && overwrite) {
+				delete [] val_vec;
+				val_vec = decompose_vec;
+			}
+			
+			break;
+			
+		case lu:
+			
+			/*--- Point to correct vector ---*/
+			vec = decompose_vec;
+			
+			/*--- Initialize inverse matrix ---*/
+			inv_val_vec = new double [sz*sz];
+			
+			/*--- Invert L and U matrices in place ---*/
+			for ( j=0; j<sz; j++ ) {
+				inv_val_vec[CalcIdxFull(j, j)] = 1/vec[CalcIdxFull(j, j)];
+				for ( i=j+1; i<sz; i++ ) {
+				
+					inv_val_vec[CalcIdxFull(i, j)] = -vec[CalcIdxFull(i, j)];
+					inv_val_vec[CalcIdxFull(j, i)] = \
+						-vec[CalcIdxFull(j, i)]*inv_val_vec[CalcIdxFull(j, j)];
+					
+					if (j+1 <= i) {
+						for ( k=j+1; k<i; k++ ) {
+						
+							inv_val_vec[CalcIdxFull(i, j)] -= \
+								vec[CalcIdxFull(i, k)]*inv_val_vec[CalcIdxFull(k, j)];
+							
+							inv_val_vec[CalcIdxFull(j, i)] -= \
+								vec[CalcIdxFull(k, i)]*inv_val_vec[CalcIdxFull(j, k)];
+						}
+						inv_val_vec[CalcIdxFull(j, i)] /= vec[CalcIdxFull(i, i)];
+					}
+					
+				}
+			}
+			
+			/*--- Multiple U_inv with L_inv ---*/
+			for ( i=0; i<sz; i++ ) {
+				for ( j=0; j<sz; j++ ) {
+					vec[CalcIdxFull(i, j)] = 0;
+					for ( k=max(i, j); k<sz; k++ ) {
+						vec[CalcIdxFull(i, j)] += inv_val_vec[CalcIdxFull(i, k)]* \
+						( (k==j) ? 1 : inv_val_vec[CalcIdxFull(k, j)] );
 					}
 				}
-				inv_val_vec[CalcIdx(i, shift)] = -sum/ReadL(i, i);
+			} // Permuted inverse matrix in vec (equal to decompose_vec, 
+			  // which is a full matrix for LU decomposition)
+			
+			/*--- Get correct vector to write to ---*/
+			delete [] inv_val_vec;
+			if ( overwrite ) {
+				write_vec = val_vec;
+				inv_val_vec = NULL;
+			}
+			else { 
+				inv_val_vec = new double [num_val];
+				write_vec = inv_val_vec;
 			}
 			
-		}
-		
-	} // L inverse in inv_val_vec (checked results and are correct)
-	
-	/*--- Multiply inversed matrices ---*/
-	for (j=0; j<sz; j++) {
-		for (i=j; i<sz; i++) {
-		
-			sum = 0.0;
-			for (k=i; k<sz; k++) {
-				sum += inv_val_vec[CalcIdx(k, i)]*inv_val_vec[CalcIdx(k, j)]/ReadD(k);
+			/*--- Permutate multiplied matrix to recover A_inv ---*/
+			for (j=0; j<sz; j++) {
+				k = perm_vec[j];
+				for ( i=k; i<sz; i++ ) {
+					write_vec[CalcIdx(i, k)] = vec[CalcIdxFull(i, j)];
+				}
 			}
-			vec[CalcIdx(i, j)] = sum;
-			
-		}
-	}
-	
-	/*--- Memory management ---*/
-	delete [] inv_val_vec;
-	inv_val_vec = NULL;
-	
-	if (decompose_vec && ! overwrite) {
-		inv_val_vec = decompose_vec;
-	}
-	else if (decompose_vec && overwrite) {
-		delete [] val_vec;
-		val_vec = decompose_vec;
+			write_vec = NULL;
+
+			/*--- Memory management ---*/
+			vec = NULL;
+			delete [] decompose_vec;
+		
+			break;
+		
 	}
 	
 	decompose_vec = NULL;
-	decomposed = 0;
-	
+	decomposed = none;
 	inversed = true;
 	
 }
@@ -2526,29 +2709,74 @@ double SymmMatrix::ReadL(int i, int j)
 	if (! initialized) {
 		throw invalid_argument("Matrix not initialized.");
 	}
+	else if (decomposed == none) {
+		throw invalid_argument("Matrix not decomposed yet or results have been deleted.");
+	}
 	else if (i<0 || i>=sz || j<0 || j>=sz) {
 		throw out_of_range("Index to read from L matrix out of bounds.");
 	}
-
-	if (decomposed == 0) {
-		throw invalid_argument("Matrix not decomposed yet or results have been deleted.");
-	}
-
-	else {
 	
-		if (decompose_vec){ p = decompose_vec; }
-		else {p = val_vec;}
+	if (decompose_vec){ p = decompose_vec; }
+	else {p = val_vec;}
+	
+	switch (decomposed) {
 		
-		if (decomposed == 1) {
+		case ldl:
 			if (i>j){ return p[CalcIdx(i, j)]; }
 			else if (i==j) { return 1.0; }
 			else { return 0.0; }
-		}
+			break;
 
-		else if (decomposed == 2) {
+		case cholesky:
 			if (i>=j){ return p[CalcIdx(i, j)];}
 			else { return 0.0; }
-		}
+			break;
+			
+		case lu:
+			if (i>j){ return p[CalcIdxFull(i, j)];}
+			else if (i==j) { return 1.0; }
+			else { return 0.0; }
+			break;
+		
+	}
+	
+}
+
+double SymmMatrix::ReadU(int i, int j)
+{
+	double *p;
+	
+	if (! initialized) {
+		throw invalid_argument("Matrix not initialized.");
+	}
+	else if (decomposed == none) {
+		throw invalid_argument("Matrix not decomposed yet or results have been deleted.");
+	}
+	else if (i<0 || i>=sz || j<0 || j>=sz) {
+		throw out_of_range("Index to read from L matrix out of bounds.");
+	}
+	
+	if (decompose_vec){ p = decompose_vec; }
+	else {p = val_vec;}
+	
+	switch (decomposed) {
+		
+		case ldl:
+			if (j<i){ return p[CalcIdx(j, i)]; }
+			else if (i==j) { return 1.0; }
+			else { return 0.0; }
+			break;
+
+		case cholesky:
+			if (j>=i){ return p[CalcIdx(j, i)];}
+			else { return 0.0; }
+			break;
+			
+		case lu:
+			if (j>=i){ return p[CalcIdxFull(j, i)];}
+			else { return 0.0; }
+			break;
+		
 	}
 	
 }
@@ -2560,20 +2788,31 @@ double SymmMatrix::ReadD(int i)
 	if (! initialized) {
 		throw invalid_argument("Matrix not initialized.");
 	}
+	else if (decomposed == none) {
+		throw invalid_argument("Matrix not decomposed yet or results have been deleted.");
+	}
 	else if (i<0 || i>=sz) {
 		throw out_of_range("Index to read from D vector out of bounds.");
 	}
 
-	if (decomposed == 1) {
-		if (decompose_vec){ p = decompose_vec; }
-		else {p = val_vec;}
+	switch ( decomposed ) {
+
+		case ldl:
+			if (decompose_vec){ p = decompose_vec; }
+			else {p = val_vec;}
 		
-		return p[CalcIdx(i, i)];
+			return p[CalcIdx(i, i)];
+			break;
+	
+		case cholesky:
+			return 1.0;
+			break;
+	
+		default:
+			throw invalid_argument("Matrix not decomposed yet or results have been deleted.");
+			break;
+		
 	}
-	
-	else if (decomposed == 2) {return 1.0;}
-	
-	else { throw invalid_argument("Matrix not decomposed yet or results have been deleted."); }
 	
 }
 
@@ -2753,7 +2992,6 @@ void SymmMatrix::Print()
 		cout << " ], " << endl;
 	}
 	cout << "]" << endl;
-
 }
 
 void SymmMatrix::PrintInv()
@@ -2768,7 +3006,20 @@ void SymmMatrix::PrintInv()
 		cout << " ], " << endl;
 	}
 	cout << "]" << endl;
+}
 
+void SymmMatrix::PrintLU()
+{
+	cout << "LU matrix:" << endl;
+	cout << "["<< endl;
+	for (int i=0; i<sz; i++) {
+		cout << "[ ";
+		for (int j=0; j<sz; j++) {
+			cout << decompose_vec[CalcIdxFull(i, j)] << ", ";
+		}
+		cout << " ], " << endl;
+	}
+	cout << "]" << endl;
 }
 
 void SymmMatrix::CheckInv()

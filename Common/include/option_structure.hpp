@@ -298,14 +298,12 @@ static const map<string, ENUM_MAT_COMPRESS> MatComp_Map = CCreateMap<string, ENU
 enum ENUM_INTERPOLATOR {
   NEAREST_NEIGHBOR = 0,   /*!< \brief Nearest Neigbhor interpolation */
   ISOPARAMETRIC = 1, /*!< \brief Isoparametric interpolation */
-  CONSISTCONSERVE = 2,/*!< \brief Consistent & Conservative interpolation (S.A. Brown 1997). Utilizes Isoparametric interpolation. */
-  RADIAL_BASIS_FUNCTION = 3, /*!< \brief Radial basis function interpolation. */
+  RADIAL_BASIS_FUNCTION = 2, /*!< \brief Radial basis function interpolation. */
 };
 
 static const map<string, ENUM_INTERPOLATOR> Interpolator_Map = CCreateMap<string, ENUM_INTERPOLATOR>
 ("NEAREST_NEIGHBOR", NEAREST_NEIGHBOR)
 ("ISOPARAMETRIC", ISOPARAMETRIC)
-("CONSISTCONSERVE", CONSISTCONSERVE)
 ("RADIAL_BASIS_FUNCTION", RADIAL_BASIS_FUNCTION);
 
 /*!
@@ -313,16 +311,18 @@ static const map<string, ENUM_INTERPOLATOR> Interpolator_Map = CCreateMap<string
  */
 enum ENUM_RADIALBASIS {
   WENDLAND_C2 = 0,   /*!< \brief Wendland C2 radial basis function. */
-  INV_MULTI_QUARTIC = 1, /*!< \brief Inversed multi quartic biharmonic spline. */
-  THIN_PLATE_SPLINE = 2, /*!< \brief Thin plate spline. */
-  GAUSSIAN = 3,/*!< \brief Gaussian basis function. */
+  INV_MULTI_QUADRIC = 1, /*!< \brief Inversed multi quartic biharmonic spline. */
+  GAUSSIAN = 2, /*!< \brief Gaussian basis function. */
+  THIN_PLATE_SPLINE = 3, /*!< \brief Thin plate spline. */
+  MULTI_QUADRIC = 4, /*!< \brief Multi quartic biharmonic spline. */
 };
 
-static const map<string, ENUM_RADIALBASIS> RadialBasis_Map = CCreateMap<string, ENUM_RADIALBASIS>
+static const map<string, ENUM_RADIALBASIS> RadialBasisFunction_Map = CCreateMap<string, ENUM_RADIALBASIS>
 ("WENDLAND_C2", WENDLAND_C2)
-("INV_MULTI_QUARTIC", INV_MULTI_QUARTIC)
+("INV_MULTI_QUADRIC", INV_MULTI_QUADRIC)
+("GAUSSIAN", GAUSSIAN)
 ("THIN_PLATE_SPLINE", THIN_PLATE_SPLINE)
-("GAUSSIAN", GAUSSIAN);
+("MULTI_QUADRIC", MULTI_QUADRIC);
 
 /*!
  * \brief different regime modes
