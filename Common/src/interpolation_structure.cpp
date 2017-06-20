@@ -1536,7 +1536,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     unsigned long *nLocalVertex_Donor_arr, *localM_size_arr;
     su2double rbfVal, interfaceCoordTol=1e2*numeric_limits<double>::epsilon(), tmp_val_one, tmp_val_two;
     su2double *localM, *rbfCoord_i, *rbfCoord_j, *globalM_val_arr, *Buffer_recv_localM, *globalP, *globalP_limits, *globalP_tmp, *C_inv_trunc, *C_tmp, *tmp_target_vec, *tmp_coeff_vec;
-    SymmMatrix *globalM, *Mp;
+    CSymmetricMatrix *globalM, *Mp;
     
 //    #ifdef HAVE_MPI
 //    cout << "rank: " << rank << ", Buffer_Send_GlobalPoint: [";
@@ -1657,7 +1657,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	}
     	
     	// Initialize symmetric matrix
-    	globalM = new SymmMatrix;
+    	globalM = new CSymmetricMatrix;
     	globalM->Initialize(nGlobalVertex_Donor, globalM_val_arr);
     	globalM_val_arr = NULL;
     	
@@ -1665,7 +1665,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 	    
     }
     #else
-    globalM = new SymmMatrix;
+    globalM = new CSymmetricMatrix;
     globalM->Initialize(nLocalVertex_Donor, localM);  
     #endif
     
@@ -1677,12 +1677,12 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 				case WENDLAND_C2:
 				case INV_MULTI_QUADRIC:
 				case GAUSSIAN:
-					globalM->Chol(true);
+					globalM->CholeskyDecompose(true);
 					break;
 					
 				case THIN_PLATE_SPLINE:
 				case MULTI_QUADRIC:
-					globalM->LU();
+					globalM->LUDecompose();
 					break;
 			}
 			
@@ -1791,7 +1791,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     // Calculate Mp
     if (rank == MASTER_NODE)
     {
-    	Mp = new SymmMatrix;
+    	Mp = new CSymmetricMatrix;
     	Mp->Initialize(nCalc+1);
     	for (int rbf_m=0; rbf_m<nCalc+1; rbf_m++)
     	{
@@ -1868,7 +1868,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 //    	cout << "]" << endl;
     	
     	// Calculate M_inv*(I - P'*M_p*P*M_inv)
-    	globalM->SymmMatMatMult(C_tmp, nGlobalVertex_Donor, true);
+    	globalM->MatMatMult(true, C_tmp, nGlobalVertex_Donor, true);
     	
 //    	cout << "C_tmp (after multiplying): [";
 //    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
@@ -2283,31 +2283,27 @@ void CRadialBasisFunction::Get_RadialBasisValue(su2double &dist, CConfig *config
 }
 
 /*--- Symmetric matrix class definitions ---*/
-SymmMatrix::SymmMatrix()
+CSymmetricMatrix::CSymmetricMatrix()
 {
 	initialized = false;
 	inversed = false;
 	decomposed = none;
 	
-	num_del_col = 0;
-	
 	val_vec = NULL;
 	decompose_vec = NULL;
 	inv_val_vec = NULL;
-	deleted_col = NULL;
 	perm_vec = NULL;
 }
 
-SymmMatrix::~SymmMatrix()
+CSymmetricMatrix::~CSymmetricMatrix()
 {
 	if ( val_vec ) { delete [] val_vec; }
 	if ( decompose_vec ) { delete [] decompose_vec; }
 	if ( inv_val_vec ) { delete [] inv_val_vec; }
-	if ( deleted_col ) { delete [] deleted_col; }
 	if ( perm_vec ) { delete [] perm_vec; }
 }
 
-void SymmMatrix::Initialize(int N)
+void CSymmetricMatrix::Initialize(int N)
 {
 	int i;
 	
@@ -2319,7 +2315,7 @@ void SymmMatrix::Initialize(int N)
 	initialized = true;
 }
 
-void SymmMatrix::Initialize(int N, double *formed_val_vec)
+void CSymmetricMatrix::Initialize(int N, double *formed_val_vec)
 {
 	int i;
 	
@@ -2330,35 +2326,22 @@ void SymmMatrix::Initialize(int N, double *formed_val_vec)
 	initialized = true;
 }
 
-inline int SymmMatrix::CalcIdx(int i, int j)
+inline int CSymmetricMatrix::CalcIdx(int i, int j)
 {	
-	if (deleted_col) {
-		for (int k=num_del_col-1; k>=0; k--) {
-			if (i>=deleted_col[k]) {
-				i++;
-			}
-			if (j>=deleted_col[k]) {
-				j++;
-			}
-		}
-	}
-
-//	if (i >= j) {
-//		return i + (2*(sz+num_del_col)-j-1)*j/2;
-//	}
-//	else {
-//		return j + (2*(sz+num_del_col)-i-1)*i/2;
-//	}
-
-	return max(i, j) + (2*(sz+num_del_col)-min(i, j)-1)*min(i, j)/2;
+	return max(i, j) + (2*sz-min(i, j)-1)*min(i, j)/2;
 }
 
-inline int SymmMatrix::CalcIdxFull(int i, int j)
+inline int CSymmetricMatrix::CalcIdxFull(int i, int j)
 {
 	return i*sz + j;
 }
 
-void SymmMatrix::Write(int i, int j, double val)
+inline int CSymmetricMatrix::GetSize()
+{
+  return sz;
+}
+
+void CSymmetricMatrix::Write(int i, int j, double val)
 {
 	if (! initialized) {
 		throw invalid_argument("Matrix not initialized.");
@@ -2369,55 +2352,7 @@ void SymmMatrix::Write(int i, int j, double val)
 	val_vec[CalcIdx(i, j)] = val;
 }
 
-void SymmMatrix::LDL(bool overwrite)
-{
-	int i, j, k;
-	double *vec, sum;
-	
-	if (! initialized) {
-		throw invalid_argument("Matrix not initialized.");
-	}
-	
-	/*--- Point to correct vector ---*/
-	if (overwrite) {
-		vec = val_vec;
-	}
-	else {
-		decompose_vec = new double [num_val];
-		for (i=0; i<num_val; i++){decompose_vec[i] = val_vec[i];}
-		vec = decompose_vec;
-	}
-	
-	/*--- Decompose matrix ---*/
-	for (j=0; j<sz; j++) {
-	
-		/*--- Calculate diagonal terms ---*/
-		sum = 0.0;
-		for (k=0; k<j; k++) { 
-			if (k<j) {
-				sum += vec[CalcIdx(j, k)]*vec[CalcIdx(j, k)]*vec[CalcIdx(k, k)];
-			}
-		}
-		vec[CalcIdx(j, j)] -= sum;
-		
-		/*--- Calculate lower triangular terms ---*/
-		for (i=j+1; i<sz; i++) {
-			sum = 0.0;		
-			for (k=0; k<j; k++) {
-				if (k<j) {
-					sum += vec[CalcIdx(i, k)]*vec[CalcIdx(k, k)]*vec[CalcIdx(j, k)];
-				}
-			}
-			vec[CalcIdx(i, j)] -= sum;
-			vec[CalcIdx(i, j)] /= vec[CalcIdx(j, j)];
-		}
-	}
-	
-	decomposed = ldl;
-	
-}
-
-void SymmMatrix::Chol(bool overwrite)
+void CSymmetricMatrix::CholeskyDecompose(bool overwrite)
 {
 	int i, j, k;
 	double *vec, sum;
@@ -2461,7 +2396,7 @@ void SymmMatrix::Chol(bool overwrite)
 	
 }
 
-void SymmMatrix::LU()
+void CSymmetricMatrix::LUDecompose()
 {
 	bool interchange_row;
 	int i, j, k, pivot_idx, tmp_perm_idx;
@@ -2533,9 +2468,9 @@ void SymmMatrix::LU()
 	
 }
 
-void SymmMatrix::CalcInv(bool overwrite)
+void CSymmetricMatrix::CalcInv(bool overwrite)
 {
-	int i, j, k, shift;
+	int i, j, k;
 	double *vec, sum, *write_vec;
 	
 	if ( ! initialized ) {
@@ -2543,13 +2478,12 @@ void SymmMatrix::CalcInv(bool overwrite)
 	}
 	
 	/*--- Decompose matrix if not already done ---*/
-	if ( decomposed == none ) { LU(); }
+	if ( decomposed == none ) { LUDecompose(); }
 	
 	/*--- Calculate inverse from decomposed matrices ---*/
 	switch ( decomposed ) {
 	
 		case cholesky:
-		case ldl:
 		
 			/*--- Point to correct vector ---*/
 			if ( decompose_vec ) { vec = decompose_vec; }
@@ -2557,29 +2491,28 @@ void SymmMatrix::CalcInv(bool overwrite)
 	
 			/*--- Initialize inverse matrix ---*/
 			inv_val_vec = new double [num_val];
-			for (i=0; i<num_val; i++){inv_val_vec[i] = 0.0;}
+			for (i=0; i<num_val; i++){inv_val_vec[i] = 0.0;}	
 	
 			/*---        Calculate L inverse       ---*/
 			/*--- Solve smaller and smaller system ---*/
-			for (j=sz; j>0; j--) {
+			for (j=0; j<sz; j++) { 
 		
-				shift = sz-j;
-				inv_val_vec[CalcIdx(shift, shift)] = 1.0;
+				inv_val_vec[CalcIdx(j, j)] = 1.0;
 		
 				/*--- Forward substitution ---*/
-				for (i=shift; i<sz; i++) {
+				for (i=j; i<sz; i++) {
 		
-					if (i==shift) {
+					if (i==j) {
 						inv_val_vec[CalcIdx(i, i)] = 1/ReadL(i, i);
 					}
 					else {
-						sum = 0;
-						for (k=shift; k<i; k++) {
+						sum = 0.0;
+						for (k=j; k<i; k++) {
 							if (k<i) {
-								sum += vec[CalcIdx(i, k)]*inv_val_vec[CalcIdx(k, shift)];
+								sum += vec[CalcIdx(i, k)]*inv_val_vec[CalcIdx(k, j)];
 							}
 						}
-						inv_val_vec[CalcIdx(i, shift)] = -sum/ReadL(i, i);
+						inv_val_vec[CalcIdx(i, j)] = -sum/ReadL(i, i);
 					}
 			
 				}
@@ -2592,7 +2525,7 @@ void SymmMatrix::CalcInv(bool overwrite)
 		
 					sum = 0.0;
 					for (k=i; k<sz; k++) {
-						sum += inv_val_vec[CalcIdx(k, i)]*inv_val_vec[CalcIdx(k, j)]/ReadD(k);
+						sum += inv_val_vec[CalcIdx(k, i)]*inv_val_vec[CalcIdx(k, j)];
 					}
 					vec[CalcIdx(i, j)] = sum;
 			
@@ -2648,7 +2581,7 @@ void SymmMatrix::CalcInv(bool overwrite)
 			/*--- Multiple U_inv with L_inv ---*/
 			for ( i=0; i<sz; i++ ) {
 				for ( j=0; j<sz; j++ ) {
-					vec[CalcIdxFull(i, j)] = 0;
+					vec[CalcIdxFull(i, j)] = 0.0;
 					for ( k=max(i, j); k<sz; k++ ) {
 						vec[CalcIdxFull(i, j)] += inv_val_vec[CalcIdxFull(i, k)]* \
 						( (k==j) ? 1 : inv_val_vec[CalcIdxFull(k, j)] );
@@ -2691,7 +2624,7 @@ void SymmMatrix::CalcInv(bool overwrite)
 	
 }
 
-double SymmMatrix::Read(int i, int j)
+double CSymmetricMatrix::Read(int i, int j)
 {
 	if (! initialized) {
 		throw invalid_argument("Matrix not initialized.");
@@ -2702,7 +2635,7 @@ double SymmMatrix::Read(int i, int j)
 	return val_vec[CalcIdx(i, j)];
 }
 
-double SymmMatrix::ReadL(int i, int j)
+double CSymmetricMatrix::ReadL(int i, int j)
 {
 	double *p;
 	
@@ -2720,12 +2653,6 @@ double SymmMatrix::ReadL(int i, int j)
 	else {p = val_vec;}
 	
 	switch (decomposed) {
-		
-		case ldl:
-			if (i>j){ return p[CalcIdx(i, j)]; }
-			else if (i==j) { return 1.0; }
-			else { return 0.0; }
-			break;
 
 		case cholesky:
 			if (i>=j){ return p[CalcIdx(i, j)];}
@@ -2742,7 +2669,7 @@ double SymmMatrix::ReadL(int i, int j)
 	
 }
 
-double SymmMatrix::ReadU(int i, int j)
+double CSymmetricMatrix::ReadU(int i, int j)
 {
 	double *p;
 	
@@ -2760,16 +2687,9 @@ double SymmMatrix::ReadU(int i, int j)
 	else {p = val_vec;}
 	
 	switch (decomposed) {
-		
-		case ldl:
-			if (j<i){ return p[CalcIdx(j, i)]; }
-			else if (i==j) { return 1.0; }
-			else { return 0.0; }
-			break;
 
 		case cholesky:
-			if (j>=i){ return p[CalcIdx(j, i)];}
-			else { return 0.0; }
+			return 0.0;
 			break;
 			
 		case lu:
@@ -2781,42 +2701,7 @@ double SymmMatrix::ReadU(int i, int j)
 	
 }
 
-double SymmMatrix::ReadD(int i)
-{
-	double *p;
-
-	if (! initialized) {
-		throw invalid_argument("Matrix not initialized.");
-	}
-	else if (decomposed == none) {
-		throw invalid_argument("Matrix not decomposed yet or results have been deleted.");
-	}
-	else if (i<0 || i>=sz) {
-		throw out_of_range("Index to read from D vector out of bounds.");
-	}
-
-	switch ( decomposed ) {
-
-		case ldl:
-			if (decompose_vec){ p = decompose_vec; }
-			else {p = val_vec;}
-		
-			return p[CalcIdx(i, i)];
-			break;
-	
-		case cholesky:
-			return 1.0;
-			break;
-	
-		default:
-			throw invalid_argument("Matrix not decomposed yet or results have been deleted.");
-			break;
-		
-	}
-	
-}
-
-double SymmMatrix::ReadInv(int i, int j)
+double CSymmetricMatrix::ReadInv(int i, int j)
 {
 	double *p;
 
@@ -2838,41 +2723,7 @@ double SymmMatrix::ReadInv(int i, int j)
 	
 }
 
-void SymmMatrix::DeleteCol(int i)
-{
-
-	int *tmp_deleted_col;
-
-	if (i>=sz) {throw out_of_range("Index for deleting column out of bounds.");}
-
-	if (! deleted_col){
-		deleted_col = new int [1];
-		deleted_col[0] = i;
-	}
-	else{
-	
-		tmp_deleted_col = new int [num_del_col];
-		for (int j=0; j<num_del_col; j++) {
-			tmp_deleted_col[j] = deleted_col[j];
-		}
-		
-		delete [] deleted_col;
-		deleted_col = new int [num_del_col+1];
-		
-		for (int j=0; j<num_del_col; j++) {
-			deleted_col[j] = tmp_deleted_col[j];
-		}
-		deleted_col[num_del_col] = i;
-		
-		delete [] tmp_deleted_col;
-		
-	}
-	
-	num_del_col++;
-	sz--;
-}
-
-void SymmMatrix::VecMatMult(double *v)
+void CSymmetricMatrix::VecMatMult(double *v)
 {
 	double *tmp_res;
 	
@@ -2890,7 +2741,7 @@ void SymmMatrix::VecMatMult(double *v)
 	
 }
 
-void SymmMatrix::VecMatMult(double *v, int N)
+void CSymmetricMatrix::VecMatMult(double *v, int N)
 {
 	double *tmp_res;
 	
@@ -2907,7 +2758,7 @@ void SymmMatrix::VecMatMult(double *v, int N)
 	tmp_res = NULL;
 }
 
-void SymmMatrix::VecMatMult(double *v, double *res, int N)
+void CSymmetricMatrix::VecMatMult(double *v, double *res, int N)
 {	
 	for (int i=0; i<N; i++) {
 		res[i] = 0.0;
@@ -2917,7 +2768,7 @@ void SymmMatrix::VecMatMult(double *v, double *res, int N)
 	}
 }
 
-void SymmMatrix::MatVecMult(double *v)
+void CSymmetricMatrix::MatVecMult(double *v)
 {
 	double *tmp_res;
 	
@@ -2934,45 +2785,41 @@ void SymmMatrix::MatVecMult(double *v)
 	tmp_res = NULL;
 }
 
-void SymmMatrix::SymmMatMatMult(double *mat_vec, int N, bool row_major_order)
+void CSymmetricMatrix::MatMatMult(bool left_mult, double *mat_vec, int N, bool row_major_order)
 {
 	double *tmp_res;
 	
 	tmp_res = new double [sz*N];
 	
-	if (row_major_order)
-	{
-		for (unsigned long i=0; i<sz; i++)
-		{
-			for (unsigned long j=0; j<N; j++)
-			{
-				tmp_res[i*N+j] = 0;
-				for (unsigned long k=0; k<sz; k++)
-				{
-					tmp_res[i*N+j] += Read(i, k)*mat_vec[k*N+j];
-				}
-			}
-		}
+	if (left_mult) {
+	  if (row_major_order) {
+		  for (unsigned long i=0; i<sz; i++) {
+			  for (unsigned long j=0; j<N; j++) {
+				  tmp_res[i*N+j] = 0;
+				  for (unsigned long k=0; k<sz; k++) {
+					  tmp_res[i*N+j] += Read(i, k)*mat_vec[k*N+j];
+				  }
+			  }
+		  }
+	  }
+	
+	  // Column major order
+	  else {
+		  for (unsigned long i=0; i<sz; i++) {
+			  for (unsigned long j=0; j<N; j++) {
+				  tmp_res[j*sz+i] = 0;
+				  for (unsigned long k=0; k<sz; k++) {
+					  tmp_res[j*sz+i] += Read(i, k)*mat_vec[j*sz+k];
+				  }
+			  }
+		  }
+	  }
+	}
+	else {
+	  throw invalid_argument("Matrix right multiply not implemented yet.");
 	}
 	
-	// Column major order
-	else
-	{
-		for (unsigned long i=0; i<sz; i++)
-		{
-			for (unsigned long j=0; j<N; j++)
-			{
-				tmp_res[j*sz+i] = 0;
-				for (unsigned long k=0; k<sz; k++)
-				{
-					tmp_res[j*sz+i] += Read(i, k)*mat_vec[j*sz+k];
-				}
-			}
-		}
-	}
-	
-	for (unsigned long i=0; i<sz*N; i++)
-	{
+	for (unsigned long i=0; i<sz*N; i++) {
 		mat_vec[i] = tmp_res[i];
 	}
 	
@@ -2980,7 +2827,7 @@ void SymmMatrix::SymmMatMatMult(double *mat_vec, int N, bool row_major_order)
 	
 }
 
-void SymmMatrix::Print()
+void CSymmetricMatrix::Print()
 {
 	cout << "Matrix values:" << endl;
 	cout << "["<< endl;
@@ -2994,7 +2841,7 @@ void SymmMatrix::Print()
 	cout << "]" << endl;
 }
 
-void SymmMatrix::PrintInv()
+void CSymmetricMatrix::PrintInv()
 {
 	cout << "Matrix inverse values:" << endl;
 	cout << "["<< endl;
@@ -3008,7 +2855,7 @@ void SymmMatrix::PrintInv()
 	cout << "]" << endl;
 }
 
-void SymmMatrix::PrintLU()
+void CSymmetricMatrix::PrintLU()
 {
 	cout << "LU matrix:" << endl;
 	cout << "["<< endl;
@@ -3022,7 +2869,7 @@ void SymmMatrix::PrintLU()
 	cout << "]" << endl;
 }
 
-void SymmMatrix::CheckInv()
+void CSymmetricMatrix::CheckInv()
 {
 	double sum;
 	

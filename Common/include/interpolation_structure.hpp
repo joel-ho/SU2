@@ -300,43 +300,40 @@ public:
 
 };
 
-class SymmMatrix{
+class CSymmetricMatrix{
 
 	private:
 		
 		/*--- Variables ---*/
 		bool initialized, inversed;
-		int sz, num_val, num_del_col;
-		int *deleted_col, *perm_vec;
+		int sz, num_val;
+		int *perm_vec;
 		double *val_vec, *decompose_vec, *inv_val_vec;
 		
-		enum DecompositionType { none, cholesky, ldl, lu };
+		enum DecompositionType { none, cholesky, lu };
 		
 		DecompositionType decomposed;
 		
 		/*--- Methods ---*/
 		inline int CalcIdx(int i, int j);
 		inline int CalcIdxFull(int i, int j);
-		double ReadD(int i);
 
 	public:
 	
 		/*--- Methods ---*/
-		SymmMatrix();
-		~SymmMatrix();
+		CSymmetricMatrix();
+		~CSymmetricMatrix();
 		
 		void Initialize(int N);
 		void Initialize(int N, double *formed_val_vec);
 		
-		inline int GetSize() { return sz; }
-		inline int GetNumDelCol() { return num_del_col; }
+		inline int GetSize();
 		
 		void Write(int i, int j, double val);
 		double Read(int i, int j);
 		
-		void Chol(bool overwrite);		
-		void LDL(bool overwrite);
-		void LU();
+		void CholeskyDecompose(bool overwrite);
+		void LUDecompose();
 		void CalcInv(bool overwrite);
 		
 		double ReadL(int i, int j);
@@ -348,13 +345,11 @@ class SymmMatrix{
 		void PrintLU();
 		void CheckInv();
 		
-		void DeleteCol(int i);
-		
 		void VecMatMult(double *v);
 		void VecMatMult(double *v, int N);
 		void VecMatMult(double *v, double *res, int N);
 		void MatVecMult(double *v);
 		
-		void SymmMatMatMult(double *mat_vec, int N, bool row_major_order);
+		void MatMatMult(bool left_mult, double *mat_vec, int N, bool row_major_order);
 		
 };
