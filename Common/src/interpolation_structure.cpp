@@ -1425,14 +1425,27 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 
 	int rank=MASTER_NODE, nProcessor=SINGLE_NODE;
   int iProcessor, pProcessor;
-  int markDonor, markTarget, Target_check, Donor_check;
+  int nCalc;
+  int mark_donor, mark_target, target_check, donor_check;
+  int *calc_dim_check;
 
-  unsigned short iDim, nDim, iMarkerInt, nMarkerInt, iDonor;    
+  unsigned short iDim, nDim, iMarkerInt, nMarkerInt;    
 
-  unsigned long nVertexDonor, nVertexTarget, Point_Target, jVertex, iVertexTarget, nLocalVertex_Donor;
-  unsigned long Global_Point_Donor, pGlobalPoint=0;
-
-  su2double *Coord_i, Coord_j[3], dist, mindist, maxdist;
+  unsigned long iVertexDonor, jVertexDonor, iVertexTarget, iLocalM, iCount, jCount;
+  unsigned long nVertexDonor, nVertexTarget, nVertexDonorInDomain;
+  unsigned long nGlobalVertexDonor, iGlobalVertexDonor_end, nLocalM;
+  unsigned long point_donor, point_target;
+  unsigned long *nVertexDonorInDomain_arr, *nLocalM_arr;
+    
+  su2double val_i, val_j;
+  su2double interface_coord_tol=1e2*numeric_limits<double>::epsilon();
+  su2double *Coord_i, *Coord_j;
+  su2double *local_M, *global_M_val_arr, *Buffer_recv_local_M;
+  su2double *global_P, *global_P_limits, *global_P_tmp;
+  su2double *C_inv_trunc, *C_tmp;
+  su2double *target_vec, *coeff_vec;
+  
+  CSymmetricMatrix *global_M, *global_Mp;
 
 #ifdef HAVE_MPI
 
@@ -1452,7 +1465,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
   
   nDim = donor_geometry->GetnDim();
 
-  iDonor = 0;
   
   Buffer_Receive_nVertex_Donor = new unsigned long [nProcessor];
 
@@ -1462,64 +1474,64 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
   for (iMarkerInt = 1; iMarkerInt <= nMarkerInt; iMarkerInt++) {
 
     /*--- On the donor side: find the tag of the boundary sharing the interface ---*/
-    markDonor  = Find_InterfaceMarker(config[donorZone],  iMarkerInt);
+    mark_donor  = Find_InterfaceMarker(config[donorZone],  iMarkerInt);
       
     /*--- On the target side: find the tag of the boundary sharing the interface ---*/
-    markTarget = Find_InterfaceMarker(config[targetZone], iMarkerInt);
+    mark_target = Find_InterfaceMarker(config[targetZone], iMarkerInt);
 
     #ifdef HAVE_MPI
     
-    Donor_check  = -1;
-    Target_check = -1;
+    donor_check  = -1;
+    target_check = -1;
         
     /*--- We gather a vector in MASTER_NODE to determines whether the boundary is not on the processor because of the partition or because the zone does not include it ---*/
     
-    SU2_MPI::Gather(&markDonor , 1, MPI_INT, Buffer_Recv_mark, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
+    SU2_MPI::Gather(&mark_donor , 1, MPI_INT, Buffer_Recv_mark, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
     
     if (rank == MASTER_NODE)
       for (iRank = 0; iRank < nProcessor; iRank++)
         if( Buffer_Recv_mark[iRank] != -1 ) {
-          Donor_check = Buffer_Recv_mark[iRank];
+          donor_check = Buffer_Recv_mark[iRank];
           break;
         }
     
-    SU2_MPI::Bcast(&Donor_check , 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
+    SU2_MPI::Bcast(&donor_check , 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
     
     
-    SU2_MPI::Gather(&markTarget, 1, MPI_INT, Buffer_Recv_mark, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
+    SU2_MPI::Gather(&mark_target, 1, MPI_INT, Buffer_Recv_mark, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
     
     if (rank == MASTER_NODE)
       for (iRank = 0; iRank < nProcessor; iRank++)
         if( Buffer_Recv_mark[iRank] != -1 ) {
-          Target_check = Buffer_Recv_mark[iRank];
+          target_check = Buffer_Recv_mark[iRank];
           break;
         }
 
-    SU2_MPI::Bcast(&Target_check, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
+    SU2_MPI::Bcast(&target_check, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
         
     #else
-    Donor_check  = markDonor;
-    Target_check = markTarget;  
+    donor_check  = mark_donor;
+    target_check = mark_target;  
     #endif
     
     /*--- Checks if the zone contains the interface, if not continue to the next step ---*/
-    if(Target_check == -1 || Donor_check == -1)
+    if(target_check == -1 || donor_check == -1)
       continue;
 
-    if(markDonor != -1)
-      nVertexDonor  = donor_geometry->GetnVertex( markDonor );
+    if(mark_donor != -1)
+      nVertexDonor  = donor_geometry->GetnVertex( mark_donor );
     else
       nVertexDonor  = 0;
     
-    if(markTarget != -1)
-      nVertexTarget = target_geometry->GetnVertex( markTarget );
+    if(mark_target != -1)
+      nVertexTarget = target_geometry->GetnVertex( mark_target );
     else
       nVertexTarget  = 0;
     
     Buffer_Send_nVertex_Donor  = new unsigned long [ 1 ];
 
     /* Sets MaxLocalVertex_Donor, Buffer_Receive_nVertex_Donor */
-    Determine_ArraySize(false, markDonor, markTarget, nVertexDonor, nDim);
+    Determine_ArraySize(false, mark_donor, mark_target, nVertexDonor, nDim);
 
     Buffer_Send_Coord          = new su2double     [ MaxLocalVertex_Donor * nDim ];
     Buffer_Send_GlobalPoint    = new unsigned long [ MaxLocalVertex_Donor ];
@@ -1527,147 +1539,107 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     Buffer_Receive_GlobalPoint = new unsigned long [ nProcessor * MaxLocalVertex_Donor ];
 
     /*-- Collect coordinates, global points, and normal vectors ---*/
-    Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim, nLocalVertex_Donor);
+    Collect_VertexInfo( false, mark_donor, mark_target, nVertexDonor, nDim, nVertexDonorInDomain);
     
-    /*--- NEW_CODE_PARALLEL_START ---*/
-    int nCalc;
-    int *calcDim;
-    unsigned long nGlobalVertex_Donor, iLocalVertex_Donor_start, iLocalVertex_Donor_end, localM_size, tmp_counter=0, recv_localM_size, tmp_counter_two=0, donorGlobalIdx;
-    unsigned long *nLocalVertex_Donor_arr, *localM_size_arr;
-    su2double rbfVal, interfaceCoordTol=1e2*numeric_limits<double>::epsilon(), tmp_val_one, tmp_val_two;
-    su2double *localM, *rbfCoord_i, *rbfCoord_j, *globalM_val_arr, *Buffer_recv_localM, *globalP, *globalP_limits, *globalP_tmp, *C_inv_trunc, *C_tmp, *tmp_target_vec, *tmp_coeff_vec;
-    CSymmetricMatrix *globalM, *Mp;
-    
-//    #ifdef HAVE_MPI
-//    cout << "rank: " << rank << ", Buffer_Send_GlobalPoint: [";
-//    for (int iC=0; iC<nLocalVertex_Donor; iC++) {cout << Buffer_Send_GlobalPoint[iC] << ", ";}
-//    cout << "], Buffer_Receive_GlobalPoint: ";
-//    for (int iC=0; iC<nProcessor*MaxLocalVertex_Donor; iC++) {cout << Buffer_Receive_GlobalPoint[iC] << ", ";}
-//    cout << "]" << endl;
-//    #endif
     
     // Create array with information about number of local vertices in all processors
     // Also calculate total number of donor vertices on boundary
-    nLocalVertex_Donor_arr = new unsigned long [nProcessor];
+    nVertexDonorInDomain_arr = new unsigned long [nProcessor];
     #ifdef HAVE_MPI
-    SU2_MPI::Allgather(&nLocalVertex_Donor, 1, MPI_UNSIGNED_LONG, nLocalVertex_Donor_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
-    SU2_MPI::Allreduce(&nLocalVertex_Donor, &nGlobalVertex_Donor, 1, MPI_UNSIGNED_LONG, MPI_SUM, MPI_COMM_WORLD);
+    SU2_MPI::Allgather(&nVertexDonorInDomain, 1, MPI_UNSIGNED_LONG, nVertexDonorInDomain_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
+    SU2_MPI::Allreduce(&nVertexDonorInDomain, &nGlobalVertexDonor, 1, MPI_UNSIGNED_LONG, MPI_SUM, MPI_COMM_WORLD);
     #else
-    nLocalVertex_Donor_arr[SINGLE_NODE] = nLocalVertex_Donor;
-    nGlobalVertex_Donor = nLocalVertex_Donor;
+    nVertexDonorInDomain_arr[SINGLE_NODE] = nVertexDonorInDomain;
+    nGlobalVertexDonor = nVertexDonorInDomain;
     #endif
-    
-//    #ifdef HAVE_MPI
-//    cout << "rank: " << rank << ", nLocalVertex_Donor_arr: [";
-//    for (int iC=0;iC<nProcessor; iC++) {cout << nLocalVertex_Donor_arr[iC] << ", ";}
-//    cout << "], nGlobalVertex_Donor: " << nGlobalVertex_Donor << endl;
-//    #endif
     
 		// Calculate number of vertices on boundary prior to current processor
-    iLocalVertex_Donor_start = 0;
-    iLocalVertex_Donor_end = 0;
-    for (unsigned long rbf_i=0; rbf_i<=rank; rbf_i++) {
-    	iLocalVertex_Donor_end += nLocalVertex_Donor_arr[rbf_i];
+    iGlobalVertexDonor_end = 0;
+    for (iProcessor=0; iProcessor<=rank; iProcessor++) {
+    	iGlobalVertexDonor_end += nVertexDonorInDomain_arr[iProcessor];
     }
-    iLocalVertex_Donor_start = iLocalVertex_Donor_end - nLocalVertex_Donor;
     
-    // Send information about size of localM array
-		localM_size = nLocalVertex_Donor*(nLocalVertex_Donor+1)/2 + nLocalVertex_Donor*(nGlobalVertex_Donor-iLocalVertex_Donor_end);
-    localM_size_arr = new unsigned long [nProcessor];
+    // Send information about size of local_M array
+		nLocalM = nVertexDonorInDomain*(nVertexDonorInDomain+1)/2 + nVertexDonorInDomain*(nGlobalVertexDonor-iGlobalVertexDonor_end);
+    nLocalM_arr = new unsigned long [nProcessor];
     #ifdef HAVE_MPI
-    SU2_MPI::Allgather(&localM_size, 1, MPI_UNSIGNED_LONG, localM_size_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
+    SU2_MPI::Allgather(&nLocalM, 1, MPI_UNSIGNED_LONG, nLocalM_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
     #else
-    localM_size_arr[SINGLE_NODE] = localM_size;
+    nLocalM_arr[SINGLE_NODE] = nLocalM;
     #endif
     
-//    #ifdef HAVE_MPI
-//    cout << "rank: " << rank << ", iLocalVertex_Donor_start: " << iLocalVertex_Donor_start << ", iLocalVertex_Donor_end: " << iLocalVertex_Donor_end << ", localM_size: " << localM_size << endl;
-//    #endif
-    
     // Initialize local M array and calculate values
-    localM = new su2double [localM_size];  
-    rbfCoord_i = new su2double [nDim];
-    rbfCoord_j = new su2double [nDim];
-    tmp_counter=0;
-//    cout << "rank: " << rank << ", localM: [";
-    for (unsigned long rbf_i=0; rbf_i<nLocalVertex_Donor; rbf_i++) {
-//    	iDonor = nLocalVertex_Donor_prior + rbf_i;
-    	for (iDim=0; iDim<nDim; iDim++) { rbfCoord_i[iDim] = Buffer_Send_Coord[rbf_i*nDim + iDim]; }
+    local_M = new su2double [nLocalM];  
+    Coord_i = new su2double [nDim];
+    Coord_j = new su2double [nDim];
+    iCount=0;
+    for (iVertexDonor=0; iVertexDonor<nVertexDonorInDomain; iVertexDonor++) {
+    	for (iDim=0; iDim<nDim; iDim++) { Coord_i[iDim] = Buffer_Send_Coord[iVertexDonor*nDim + iDim]; }
     	
-    	for (unsigned long rbf_j=rbf_i; rbf_j<nLocalVertex_Donor; rbf_j++) { 
-	  		for (iDim=0; iDim<nDim; iDim++) { rbfCoord_j[iDim] = Buffer_Send_Coord[rbf_j*nDim + iDim]; }
+    	for (jVertexDonor=iVertexDonor; jVertexDonor<nVertexDonorInDomain; jVertexDonor++) { 
+	  		for (iDim=0; iDim<nDim; iDim++) { Coord_j[iDim] = Buffer_Send_Coord[jVertexDonor*nDim + iDim]; }
 
-	    		Get_Distance(rbfCoord_i, rbfCoord_j, nDim, rbfVal);
-			    Get_RadialBasisValue(rbfVal, config[donorZone]);
-			    localM[tmp_counter] = rbfVal;
-			    tmp_counter++;
-	      
-//	        cout << rbfVal << ", ";
-	        
-//	        cout << Buffer_Send_GlobalPoint[rbf_j] << ", ";
+	    		Get_Distance(Coord_i, Coord_j, nDim, val_i);
+			    Get_RadialBasisValue(val_i, config[donorZone]);
+			    local_M[iCount] = val_i;
+			    iCount++;
 	        
     	 }
 			if (rank+1 < nProcessor ) {
 		  	for (iProcessor=rank+1; iProcessor<nProcessor; iProcessor++) {
-		  		for (unsigned long rbf_j=0; rbf_j<nLocalVertex_Donor_arr[iProcessor]; rbf_j++) {
-			  		for (iDim=0; iDim<nDim; iDim++) { rbfCoord_j[iDim] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+rbf_j)*nDim + iDim]; }    		
-							Get_Distance(rbfCoord_i, rbfCoord_j, nDim, rbfVal);
-						  Get_RadialBasisValue(rbfVal, config[donorZone]);
-						  localM[tmp_counter] = rbfVal;
-						  tmp_counter++;
-//			        cout << rbfVal << ", ";
-			        
-//    	        cout << Buffer_Receive_GlobalPoint[iProcessor*MaxLocalVertex_Donor+rbf_j] << ", ";
+		  		for (jVertexDonor=0; jVertexDonor<nVertexDonorInDomain_arr[iProcessor]; jVertexDonor++) {
+			  		for (iDim=0; iDim<nDim; iDim++) { Coord_j[iDim] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+jVertexDonor)*nDim + iDim]; }    		
+							Get_Distance(Coord_i, Coord_j, nDim, val_i);
+						  Get_RadialBasisValue(val_i, config[donorZone]);
+						  local_M[iCount] = val_i;
+						  iCount++;
 		  		}
 		  	}
     	}
     }
-//    cout << "]" << endl;
-//    
-    #ifdef HAVE_MPI
+    
+#ifdef HAVE_MPI
     if (rank != MASTER_NODE) {
-    	SU2_MPI::Send(localM, localM_size, MPI_DOUBLE, MASTER_NODE, 0, MPI_COMM_WORLD);
+    	SU2_MPI::Send(local_M, nLocalM, MPI_DOUBLE, MASTER_NODE, 0, MPI_COMM_WORLD);
     }
     
     if (rank == MASTER_NODE) {
     
-    	globalM_val_arr = new su2double [nGlobalVertex_Donor*(nGlobalVertex_Donor+1)/2];
+    	global_M_val_arr = new su2double [nGlobalVertexDonor*(nGlobalVertexDonor+1)/2];
     	
-    	// Copy master node localM to globalM
-    	tmp_counter = 0;
-    	for (unsigned long rbf_i=0; rbf_i<localM_size; rbf_i++) {
-    		globalM_val_arr[tmp_counter] = localM[rbf_i];
-    		tmp_counter++;
+    	// Copy master node local_M to global_M
+    	iCount = 0;
+    	for (iLocalM=0; iLocalM<nLocalM; iLocalM++) {
+    		global_M_val_arr[iCount] = local_M[iLocalM];
+    		iCount++;
     	}
     	
-    	// Receive localM from various processors
+    	// Receive local_M from various processors
 			if (nProcessor > SINGLE_NODE) {
-		  	for (int rbf_i=1; rbf_i<nProcessor; rbf_i++) {
-			  	Buffer_recv_localM = new su2double[localM_size_arr[rbf_i]];
-			  	SU2_MPI::Recv(Buffer_recv_localM, localM_size_arr[rbf_i], MPI_DOUBLE, rbf_i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		  	for (iProcessor=1; iProcessor<nProcessor; iProcessor++) {
+			  	Buffer_recv_local_M = new su2double[nLocalM_arr[iProcessor]];
+			  	SU2_MPI::Recv(Buffer_recv_local_M, nLocalM_arr[iProcessor], MPI_DOUBLE, iProcessor, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			  	
-			  	// Copy processor's localM to globalM
-			  	for (unsigned long rbf_j=0; rbf_j<localM_size_arr[rbf_i]; rbf_j++) {
-			  		globalM_val_arr[tmp_counter] = Buffer_recv_localM[rbf_j];
-			  		tmp_counter++;
+			  	// Copy processor's local_M to global_M
+			  	for (iLocalM=0; iLocalM<nLocalM_arr[iProcessor]; iLocalM++) {
+			  		global_M_val_arr[iCount] = Buffer_recv_local_M[iLocalM];
+			  		iCount++;
 			  	}
 			  	
-			  	delete [] Buffer_recv_localM;
+			  	delete [] Buffer_recv_local_M;
 		  	}
     	}
     	
     	// Initialize symmetric matrix
-    	globalM = new CSymmetricMatrix;
-    	globalM->Initialize(nGlobalVertex_Donor, globalM_val_arr);
-    	globalM_val_arr = NULL;
-    	
-//	    globalM->Print();
+    	global_M = new CSymmetricMatrix;
+    	global_M->Initialize(nGlobalVertexDonor, global_M_val_arr);
+    	global_M_val_arr = NULL;
 	    
     }
-    #else
-    globalM = new CSymmetricMatrix;
-    globalM->Initialize(nLocalVertex_Donor, localM);  
-    #endif
+#else
+    global_M = new CSymmetricMatrix;
+    global_M->Initialize(nVertexDonorInDomain, local_M);  
+#endif
     
     // Invert M matrix
     if (rank == MASTER_NODE)
@@ -1677,57 +1649,58 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 				case WENDLAND_C2:
 				case INV_MULTI_QUADRIC:
 				case GAUSSIAN:
-					globalM->CholeskyDecompose(true);
+					global_M->CholeskyDecompose(true);
 					break;
 					
 				case THIN_PLATE_SPLINE:
 				case MULTI_QUADRIC:
-					globalM->LUDecompose();
+					global_M->LUDecompose();
 					break;
 			}
 			
-	    globalM->CalcInv(true);
+	    global_M->CalcInv(true);
     }
     
-    calcDim = new int [nDim];
+    calc_dim_check = new int [nDim];
+    
 		// Calculate C_inv_trunc
 		if (rank == MASTER_NODE)
 		{
 		
 			// Fill P matrix and get minimum and maximum values
-			globalP_limits = new su2double [nDim*2];
-			globalP = new su2double [nGlobalVertex_Donor*(nDim+1)];
-			tmp_counter = 0;
+			global_P_limits = new su2double [nDim*2];
+			global_P = new su2double [nGlobalVertexDonor*(nDim+1)];
+			iCount = 0;
 			for (iProcessor=MASTER_NODE; iProcessor<nProcessor; iProcessor++)
 			{
-				for (unsigned long rbf_j=0; rbf_j<nLocalVertex_Donor_arr[iProcessor]; rbf_j++)
+				for (iVertexDonor=0; iVertexDonor<nVertexDonorInDomain_arr[iProcessor]; iVertexDonor++)
 				{
-					globalP[tmp_counter*(nDim+1)] = 1;
+					global_P[iCount*(nDim+1)] = 1;
 					for (iDim=0; iDim<nDim; iDim++)
 					{
-						globalP[tmp_counter*(nDim+1)+iDim+1] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+rbf_j)*nDim + iDim];
+						global_P[iCount*(nDim+1)+iDim+1] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+iVertexDonor)*nDim + iDim];
 					
-						if (tmp_counter == 0)
+						if (iCount == 0)
 						{
-							globalP_limits[iDim*nDim] = globalP[tmp_counter*(nDim+1)+iDim+1];
-							globalP_limits[iDim*nDim+1] = globalP[tmp_counter*(nDim+1)+iDim+1];
-							calcDim[iDim] = 1;
+							global_P_limits[iDim*nDim] = global_P[iCount*(nDim+1)+iDim+1];
+							global_P_limits[iDim*nDim+1] = global_P[iCount*(nDim+1)+iDim+1];
+							calc_dim_check[iDim] = 1;
 						}
 						else
 						{
 							// Get minimum coordinate value
-							globalP_limits[iDim*nDim] = \
-							(globalP[tmp_counter*(nDim+1)+iDim+1] < globalP_limits[iDim*nDim]) ? \
-							globalP[tmp_counter*(nDim+1)+iDim+1] : globalP_limits[iDim*nDim];
+							global_P_limits[iDim*nDim] = \
+							(global_P[iCount*(nDim+1)+iDim+1] < global_P_limits[iDim*nDim]) ? \
+							global_P[iCount*(nDim+1)+iDim+1] : global_P_limits[iDim*nDim];
 
 							// Get maximum coordinate value
-							globalP_limits[iDim*nDim+1] = \
-							(globalP[tmp_counter*(nDim+1)+iDim+1] > globalP_limits[iDim*nDim+1]) ? \
-							globalP[tmp_counter*(nDim+1)+iDim+1] : globalP_limits[iDim*nDim+1];
+							global_P_limits[iDim*nDim+1] = \
+							(global_P[iCount*(nDim+1)+iDim+1] > global_P_limits[iDim*nDim+1]) ? \
+							global_P[iCount*(nDim+1)+iDim+1] : global_P_limits[iDim*nDim+1];
 						}
 					
 					}
-					tmp_counter++;
+					iCount++;
 				}
 			}
 			
@@ -1735,259 +1708,207 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 			nCalc = nDim;
 			for (iDim=0; iDim<nDim; iDim++)
 			{
-				if ( (globalP_limits[iDim*2+1]-globalP_limits[iDim*2]) < interfaceCoordTol )
+				if ( (global_P_limits[iDim*2+1]-global_P_limits[iDim*2]) < interface_coord_tol )
 				{
-					calcDim[iDim] = 0;
+					calc_dim_check[iDim] = 0;
 					nCalc--;
 				}
 			}
 			
-//			cout << "globalP: [";
-//			for (int iC=0; iC<nGlobalVertex_Donor*(nDim+1); iC++) {cout << globalP[iC] << ", ";}
-//			cout << "]" << endl;
-//			
-//			cout << "globalP_limits: [";
-//			for (int iC=0; iC<nDim*2; iC++) {cout << globalP_limits[iC] << ", ";}
-//			cout << "]" << endl;
-//			
-//			cout << "calcDim:[ ";
-//			for (int iC=0; iC<nDim; iC++) {cout << calcDim[iC] << ", ";}
-//			cout << "]" << endl;
-			
 			if (nCalc < nDim)
 			{
-				globalP_tmp = new su2double [nGlobalVertex_Donor*(tmp_counter+1)];
+				global_P_tmp = new su2double [nGlobalVertexDonor*(iCount+1)];
 				
-				tmp_counter = 0;
-				for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
+				iCount = 0;
+				for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
 				{
-					globalP_tmp[tmp_counter] = 1;
-					tmp_counter++;
+					global_P_tmp[iCount] = 1;
+					iCount++;
 					for (iDim=0; iDim<nDim; iDim++)
 					{
-						if (calcDim[iDim] == 1)
+						if (calc_dim_check[iDim] == 1)
 						{
-							globalP_tmp[tmp_counter] = globalP[rbf_i*(nDim+1)+iDim+1];
-							tmp_counter++;
+							global_P_tmp[iCount] = global_P[iVertexDonor*(nDim+1)+iDim+1];
+							iCount++;
 						}
 					}
 				}
 				
-				delete [] globalP;
-				globalP = globalP_tmp;
-				globalP_tmp = NULL;
-				
-//				cout << "globalP_new: [";
-//				for (int iC=0; iC<tmp_counter; iC++) {cout << globalP[iC] << ", ";}
-//				cout << "]" << endl;
-
-				
-				
+				delete [] global_P;
+				global_P = global_P_tmp;
+				global_P_tmp = NULL;
 			}
-			
 			
 		}
     
-    // Calculate Mp
+    // Calculate global_Mp
     if (rank == MASTER_NODE)
     {
-    	Mp = new CSymmetricMatrix;
-    	Mp->Initialize(nCalc+1);
-    	for (int rbf_m=0; rbf_m<nCalc+1; rbf_m++)
+    	global_Mp = new CSymmetricMatrix;
+    	global_Mp->Initialize(nCalc+1);
+    	for (int m=0; m<nCalc+1; m++)
     	{
-    		for (int rbf_n=rbf_m; rbf_n<nCalc+1; rbf_n++)
+    		for (int n=m; n<nCalc+1; n++)
     		{
     		
-    			tmp_val_one = 0;
-    			for (int rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
+    			val_i = 0;
+    			for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
     			{
     			
-    				tmp_val_two = 0;
-    				for (int rbf_k=0; rbf_k<nGlobalVertex_Donor; rbf_k++)
+    				val_j = 0;
+    				for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
 		  			{
-		  				tmp_val_two += globalM->Read(rbf_i, rbf_k)*globalP[rbf_k*(nCalc+1)+rbf_n];
+		  				val_j += global_M->Read(iVertexDonor, jVertexDonor)*global_P[jVertexDonor*(nCalc+1)+n];
 		  			}
 		  			
-		  			tmp_val_one += tmp_val_two*globalP[rbf_i*(nCalc+1)+rbf_m];
+		  			val_i += val_j*global_P[iVertexDonor*(nCalc+1)+m];
 		  			
     			}
     			
-    			Mp->Write(rbf_m, rbf_n, tmp_val_one);
+    			global_Mp->Write(m, n, val_i);
     			
     		}
     	}
     	
-    	Mp->CalcInv(true);
-    	
-//    	Mp->Print();
+    	global_Mp->CalcInv(true);
     	
     	// Calculate M_p*P*M_inv
-    	C_inv_trunc = new su2double [(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor];
-    	for (int rbf_m=0; rbf_m<nCalc+1; rbf_m++)
+    	C_inv_trunc = new su2double [(nGlobalVertexDonor+nCalc+1)*nGlobalVertexDonor];
+    	for (int m=0; m<nCalc+1; m++)
     	{
-    		for (unsigned long rbf_n=0; rbf_n<nGlobalVertex_Donor; rbf_n++)
+    		for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
     		{
-    			tmp_val_one = 0;
-    			for (int rbf_i=0; rbf_i<nCalc+1; rbf_i++)
+    			val_i = 0;
+    			for (int n=0; n<nCalc+1; n++)
     			{
-    				tmp_val_two = 0;
-    				for (unsigned long rbf_k=0; rbf_k<nGlobalVertex_Donor; rbf_k++)
+    				val_j = 0;
+    				for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
     				{
-    					tmp_val_two += globalP[rbf_k*(nCalc+1)+rbf_i]*globalM->Read(rbf_k, rbf_n);
+    					val_j += global_P[jVertexDonor*(nCalc+1)+n]*global_M->Read(jVertexDonor, iVertexDonor);
     				}
-    				tmp_val_one += tmp_val_two*Mp->Read(rbf_m, rbf_i);
+    				val_i += val_j*global_Mp->Read(m, n);
     			}
-	    		C_inv_trunc[rbf_m*nGlobalVertex_Donor+rbf_n] = tmp_val_one; // Row major order
+	    		C_inv_trunc[m*nGlobalVertexDonor+iVertexDonor] = val_i; // Row major order
     		}  		
     	}
     	
-//    	cout << "MpPM_inv: [";
-//    	for (int iC=0; iC<nGlobalVertex_Donor*(nCalc+1); iC++) {cout << C_inv_trunc[iC] << ", ";}
-//    	cout << "]" << endl;
-    	
     	// Calculate (I - P'*M_p*P*M_inv)
-    	C_tmp = new su2double [nGlobalVertex_Donor*nGlobalVertex_Donor];
-    	for (unsigned long rbf_m=0; rbf_m<nGlobalVertex_Donor; rbf_m++) 
+    	C_tmp = new su2double [nGlobalVertexDonor*nGlobalVertexDonor];
+    	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++) 
     	{
-    		for (unsigned long rbf_n=0; rbf_n<nGlobalVertex_Donor; rbf_n++)
+    		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
     		{
-    			tmp_val_one = 0;
-    			for (int rbf_k=0; rbf_k<nCalc+1; rbf_k++)
+    			val_i = 0;
+    			for (int m=0; m<nCalc+1; m++)
     			{
-    				tmp_val_one += globalP[rbf_m*(nCalc+1)+rbf_k]*C_inv_trunc[rbf_k*nGlobalVertex_Donor+rbf_n];
+    				val_i += global_P[iVertexDonor*(nCalc+1)+m]*C_inv_trunc[m*nGlobalVertexDonor+jVertexDonor];
     			}
-    			C_tmp[rbf_m*(nGlobalVertex_Donor)+rbf_n] = -tmp_val_one;
+    			C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor] = -val_i;
     			
-    			if (rbf_n==rbf_m) { C_tmp[rbf_m*(nGlobalVertex_Donor)+rbf_n] += 1; }
+    			if (jVertexDonor==iVertexDonor) { C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor] += 1; }
     			
     		}
     	}
-    	
-//    	cout << "C_tmp: [";
-//    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
-//    	cout << "]" << endl;
     	
     	// Calculate M_inv*(I - P'*M_p*P*M_inv)
-    	globalM->MatMatMult(true, C_tmp, nGlobalVertex_Donor, true);
-    	
-//    	cout << "C_tmp (after multiplying): [";
-//    	for (int iC=0; iC<nGlobalVertex_Donor*nGlobalVertex_Donor; iC++) {cout << C_tmp[iC] << ", ";}
-//    	cout << "]" << endl;
+    	global_M->MatMatMult(true, C_tmp, nGlobalVertexDonor, true);
     	
     	// Write to C_inv_trunc matrix
-    	for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
+    	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
     	{
-    		for (unsigned long rbf_j=0; rbf_j<nGlobalVertex_Donor; rbf_j++)
+    		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
     		{
-    			C_inv_trunc[(rbf_i+nCalc+1)*(nGlobalVertex_Donor)+rbf_j] = C_tmp[rbf_i*(nGlobalVertex_Donor)+rbf_j];
+    			C_inv_trunc[(iVertexDonor+nCalc+1)*(nGlobalVertexDonor)+jVertexDonor] = C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor];
     		}
     	}
-    	
-//    	cout << "C_inv_trunc: [";
-//    	for (int iC=0; iC<(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor; iC++) {cout << C_inv_trunc[iC] << ", ";}
-//    	cout << "]" << endl;
-    	
-    	
     	
     }
     
     #ifdef HAVE_MPI
 	  SU2_MPI::Bcast(&nCalc, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
-		SU2_MPI::Bcast(calcDim, nDim, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
+		SU2_MPI::Bcast(calc_dim_check, nDim, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
     
     if (rank != MASTER_NODE)
     {
-    	C_inv_trunc = new su2double [(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor];
+    	C_inv_trunc = new su2double [(nGlobalVertexDonor+nCalc+1)*nGlobalVertexDonor];
     }
 
-  	SU2_MPI::Bcast(C_inv_trunc, (nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor, MPI_DOUBLE, MASTER_NODE, MPI_COMM_WORLD);
+  	SU2_MPI::Bcast(C_inv_trunc, (nGlobalVertexDonor+nCalc+1)*nGlobalVertexDonor, MPI_DOUBLE, MASTER_NODE, MPI_COMM_WORLD);
     #endif
     
-//    cout << "rank: " << rank << ", C_inv_trunc: [";
-//    for (int iC=0; iC<(nGlobalVertex_Donor+nCalc+1)*nGlobalVertex_Donor; iC++) {cout << C_inv_trunc[iC] << ", ";}
-//  	cout << "]" << endl;
-    
-    tmp_target_vec = new su2double [nGlobalVertex_Donor+nCalc+1];
-    tmp_coeff_vec = new su2double [nGlobalVertex_Donor];
+    target_vec = new su2double [nGlobalVertexDonor+nCalc+1];
+    coeff_vec = new su2double [nGlobalVertexDonor];
     for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) 
     {
-		  Point_Target = target_geometry->vertex[markTarget][iVertexTarget]->GetNode();
-
-		  if ( target_geometry->node[Point_Target]->GetDomain() ) 
+      point_target = target_geometry->vertex[mark_target][iVertexTarget]->GetNode();
+    
+		  if ( target_geometry->node[point_target]->GetDomain() ) 
 		  {
 		  	
-		  	tmp_counter = 0;
 		  	
-		  	tmp_target_vec[tmp_counter] = 1;
-		  	tmp_counter++;
+		  	iCount = 0;
+		  	target_vec[iCount] = 1;
+		  	iCount++;
 		  	
 		  	for (iDim=0; iDim<nDim; iDim++) 
 		  	{
-		  		rbfCoord_i[iDim] = target_geometry->node[Point_Target]->GetCoord(iDim);
+		  		Coord_i[iDim] = target_geometry->node[point_target]->GetCoord(iDim);
 		  		
-		  		if (calcDim[iDim] == 1)
+		  		if (calc_dim_check[iDim] == 1)
 		  		{
-		  			tmp_target_vec[tmp_counter] = rbfCoord_i[iDim];
-		  			tmp_counter++;
+		  			target_vec[iCount] = Coord_i[iDim];
+		  			iCount++;
 		  		}
 		  		
 		  	}
 				
 		  	for (iProcessor=0; iProcessor<nProcessor; iProcessor++)
 		  	{
-		  		for (unsigned long rbf_i=0; rbf_i<nLocalVertex_Donor_arr[iProcessor]; rbf_i++)
+		  		for (iVertexDonor=0; iVertexDonor<nVertexDonorInDomain_arr[iProcessor]; iVertexDonor++)
 		  		{
-							for (iDim=0; iDim<nDim; iDim++) { rbfCoord_j[iDim] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+rbf_i)*nDim + iDim]; }    		
-							Get_Distance(rbfCoord_i, rbfCoord_j, nDim, rbfVal);
-							Get_RadialBasisValue(rbfVal, config[donorZone]);
-							tmp_target_vec[tmp_counter] = rbfVal;
-							tmp_counter++;
+							for (iDim=0; iDim<nDim; iDim++) { Coord_j[iDim] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+iVertexDonor)*nDim + iDim]; }    		
+							Get_Distance(Coord_i, Coord_j, nDim, val_i);
+							Get_RadialBasisValue(val_i, config[donorZone]);
+							target_vec[iCount] = val_i;
+							iCount++;
 		  		}
 		  	}
 		  	
-//		  	cout << "rank: " << rank << ", tmp_target_vec: [";
-//				for (int iC=0; iC<nGlobalVertex_Donor+nCalc+1; iC++) {cout << tmp_target_vec[iC] << ", ";}
-//				cout << "]" << endl;
-		  	
-		  	for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
+		  	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
 		  	{
-		  		tmp_coeff_vec[rbf_i] = 0;
-		  		for (unsigned long rbf_j=0; rbf_j<nGlobalVertex_Donor+nCalc+1; rbf_j++)
+		  		coeff_vec[iVertexDonor] = 0;
+		  		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor+nCalc+1; jVertexDonor++)
 		  		{
-		  			tmp_coeff_vec[rbf_i] += tmp_target_vec[rbf_j]*C_inv_trunc[rbf_j*nGlobalVertex_Donor+rbf_i];
+		  			coeff_vec[iVertexDonor] += target_vec[jVertexDonor]*C_inv_trunc[jVertexDonor*nGlobalVertexDonor+iVertexDonor];
 		  		}
 		  	}
 				
-//				cout << "rank: " << rank << ", tmp_coeff_vec: [";
-//				for (int iC=0; iC<nGlobalVertex_Donor; iC++) {cout << tmp_coeff_vec[iC] << ", ";}
-//				cout << "]" << endl;
-				
-		  	tmp_counter = 0;
-		  	for (unsigned long rbf_i=0; rbf_i<nGlobalVertex_Donor; rbf_i++)
+		  	iCount = 0;
+		  	for (unsigned long iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
 		  	{
-		  		if ( tmp_coeff_vec[rbf_i] != 0 ) // ( abs(tmp_coeff_vec[rbf_i]) > interfaceCoordTol )
+		  		if ( coeff_vec[iVertexDonor] != 0 ) // ( abs(coeff_vec[iVertexDonor]) > interface_coord_tol )
 		  		{
-		  			tmp_counter++;
+		  			iCount++;
 		  		}
 		  	}
-		  	target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(tmp_counter);
-		  	target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo();
+		  	target_geometry->vertex[mark_target][iVertexTarget]->SetnDonorPoints(iCount);
+		  	target_geometry->vertex[mark_target][iVertexTarget]->Allocate_DonorInfo();
 		  	
-		  	tmp_counter = 0;
-		  	tmp_counter_two = 0;
+		  	iCount = 0;
+		  	jCount = 0;
 		  	for (iProcessor=0; iProcessor<nProcessor; iProcessor++)
 		  	{
-		  		for (unsigned long rbf_i=0; rbf_i<nLocalVertex_Donor_arr[iProcessor]; rbf_i++)
+		  		for (unsigned long iVertexDonor=0; iVertexDonor<nVertexDonorInDomain_arr[iProcessor]; iVertexDonor++)
 		  		{
-		  			if ( tmp_coeff_vec[tmp_counter] != 0 ) // ( abs(tmp_coeff_vec[tmp_counter]) > interfaceCoordTol )
+		  			if ( coeff_vec[iCount] != 0 ) // ( abs(coeff_vec[iCount]) > interface_coord_tol )
 						{
-							donorGlobalIdx = Buffer_Receive_GlobalPoint[iProcessor*MaxLocalVertex_Donor+rbf_i];
-						  target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(tmp_counter_two, donorGlobalIdx);
-						  target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(tmp_counter_two, iProcessor);	
-				  		target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(tmp_counter_two, tmp_coeff_vec[tmp_counter]);
-				  		tmp_counter_two++;
+							point_donor = Buffer_Receive_GlobalPoint[iProcessor*MaxLocalVertex_Donor+iVertexDonor];
+						  target_geometry->vertex[mark_target][iVertexTarget]->SetInterpDonorPoint(jCount, point_donor);
+						  target_geometry->vertex[mark_target][iVertexTarget]->SetInterpDonorProcessor(jCount, iProcessor);	
+				  		target_geometry->vertex[mark_target][iVertexTarget]->SetDonorCoeff(jCount, coeff_vec[iCount]);
+				  		jCount++;
 						}
-						tmp_counter++;
+						iCount++;
 		  		}
 		  	}
 		  	
@@ -1996,223 +1917,26 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     
     
     // Memory management
-    delete [] nLocalVertex_Donor_arr;
-    delete [] localM_size_arr;
-    delete [] localM;
-    delete [] rbfCoord_i;
-    delete [] rbfCoord_j;
+    delete [] nVertexDonorInDomain_arr;
+    delete [] nLocalM_arr;
+    delete [] local_M;
+    delete [] Coord_i;
+    delete [] Coord_j;
     delete [] C_inv_trunc;
-    delete [] tmp_target_vec;
-    delete [] tmp_coeff_vec;
+    delete [] target_vec;
+    delete [] coeff_vec;
     
     if (rank == MASTER_NODE)
     {
-		  delete globalM;
-    	delete [] calcDim;
-    	delete [] globalP_limits;
-    	delete [] globalP;
-    	delete Mp;
+		  delete global_M;
+    	delete [] calc_dim_check;
+    	delete [] global_P_limits;
+    	delete [] global_P;
+    	delete global_Mp;
     	delete [] C_tmp;
     }
     
     
-    /*--- NEW_CODE_PARALLEL_END ---*/
-    
-//    /*--- TEMP_NEAREST_NEIGHBOUR_START ---*/
-//    /*--- Compute the closest point to a Near-Field boundary point ---*/
-//    maxdist = 0.0;
-
-//    for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) {
-
-//      Point_Target = target_geometry->vertex[markTarget][iVertexTarget]->GetNode();
-
-//      if ( target_geometry->node[Point_Target]->GetDomain() ) {
-
-//        target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(1);
-//        target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo(); // Possible meme leak?
-
-//        /*--- Coordinates of the boundary point ---*/
-//        Coord_i = target_geometry->node[Point_Target]->GetCoord();
-
-//        mindist    = 1E6; 
-//        pProcessor = 0;
-
-//        /*--- Loop over all the boundaries to find the pair ---*/
-
-//        for (iProcessor = 0; iProcessor < nProcessor; iProcessor++) {
-//          for (jVertex = 0; jVertex < MaxLocalVertex_Donor; jVertex++) {
-//            Global_Point_Donor = iProcessor*MaxLocalVertex_Donor+jVertex;
-
-//            /*--- Compute the dist ---*/
-//            dist = 0.0; 
-//            for (iDim = 0; iDim < nDim; iDim++) {
-//              Coord_j[iDim] = Buffer_Receive_Coord[ Global_Point_Donor*nDim+iDim];
-//              dist += pow(Coord_j[iDim] - Coord_i[iDim], 2.0);
-//            }
-
-//            if (dist < mindist) {
-//              mindist = dist; pProcessor = iProcessor; pGlobalPoint = Buffer_Receive_GlobalPoint[Global_Point_Donor];
-//            }
-
-//            if (dist == 0.0) break;
-//          }
-
-//        } 
-
-//        /*--- Store the value of the pair ---*/
-//        maxdist = max(maxdist, mindist);
-//        target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(iDonor, pGlobalPoint);
-//        target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(iDonor, pProcessor);
-//        target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(iDonor, 1.0);
-//      }
-//    }
-//    
-//    
-//    /*--- TEMP_NEAREST_NEIGHBOUR_END ---*/
-
-//    /*--- NEW_CODE_SERIAL_START ---*/	
-//    bool *interpCoord;
-
-//    int tmpCounter, numDonorPts;
-
-//    unsigned long donorGlobalIdx;
-
-//    su2double rbfVal, interfaceCoordTol=1e3*numeric_limits<double>::epsilon();
-//    su2double *rbfCoord_i, *interfaceCoordLimits, *targetVec, *coeffVec;
-
-//    SymmMatrix donorR;
-
-//    rbfCoord_i = new su2double [nDim];
-//    interfaceCoordLimits = new su2double [nDim*2];
-//    interpCoord = new bool [nDim];
-//	
-//    // Fill R Matrix
-//    donorR.Initialize(nVertexDonor+nDim+1);
-
-//    for (unsigned long rbf_i=0; rbf_i<nVertexDonor; rbf_i++) {
-
-//	    jVertex = donor_geometry->vertex[markDonor][rbf_i]->GetNode();
-//	
-//	    // Write polynomial terms to R matrix
-//	    donorR.Write(rbf_i, nVertexDonor, 1.0);
-//      for (iDim = 0; iDim < nDim; iDim++) {
-//        rbfCoord_i[iDim] = donor_geometry->node[jVertex]->GetCoord(iDim);
-//        donorR.Write(rbf_i, nVertexDonor+iDim+1, rbfCoord_i[iDim]);
-
-//        // Get coordinates limit on interface
-//        if (rbf_i==0){
-//	        interfaceCoordLimits[iDim*nDim] = rbfCoord_i[iDim];
-//	        interfaceCoordLimits[iDim*nDim+1] = rbfCoord_i[iDim];
-//	        interpCoord[iDim] = true;
-//        }
-//        else {
-//	        interfaceCoordLimits[iDim*nDim] = \
-//	        (rbfCoord_i[iDim]<interfaceCoordLimits[iDim*nDim]) ? \
-//	        rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim];
-//	
-//	        interfaceCoordLimits[iDim*nDim+1] = \
-//	        (rbfCoord_i[iDim]>interfaceCoordLimits[iDim*nDim+1]) ? \
-//	        rbfCoord_i[iDim] : interfaceCoordLimits[iDim*nDim+1];
-//        }
-//		
-//      }
-
-//	    for (unsigned long rbf_j=rbf_i; rbf_j<nVertexDonor; rbf_j++) {
-//	
-//        jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-//          
-//        // Calculate basis function
-//        Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);
-//        Get_RadialBasisValue(rbfVal, config[donorZone]);
-//        
-//        // Write to R matrix
-//        donorR.Write(rbf_i, rbf_j, rbfVal);
-//		
-//	    }
-//    }
-//	  
-//    // Check if there are any common coordinates among all the donor points
-//    tmpCounter = 0;
-//    for (iDim=0; iDim<nDim; iDim++) {
-//      if ((interfaceCoordLimits[iDim*nDim+1]-interfaceCoordLimits[iDim*nDim]) < interfaceCoordTol) {
-//        interpCoord[iDim] = false;
-//        donorR.DeleteCol(nVertexDonor+iDim+1-tmpCounter);
-//        tmpCounter++;
-//      }
-//    }
-//    
-//    donorR.CalcInv(true);
-
-//    targetVec = new su2double [donorR.GetSize()];
-//    coeffVec = new su2double [nVertexDonor];
-//	
-//	  for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) {
-
-//      // Get target node number
-//      Point_Target = target_geometry->vertex[markTarget][iVertexTarget]->GetNode();
-//      
-//      // Get target point coordinates
-//      targetVec[nVertexDonor] = 1.0;
-//      tmpCounter=0;
-//      for (iDim=0; iDim<nDim; iDim++) {
-//      	rbfCoord_i[iDim] = target_geometry->node[Point_Target]->GetCoord(iDim);
-//      	if (interpCoord[iDim]) {
-//      	  targetVec[nVertexDonor+iDim+1-tmpCounter] = rbfCoord_i[iDim];
-//      	}
-//      	else {
-//      		tmpCounter++;
-//      	}
-//      }
-//      
-//      // Iterate through donor points
-//      numDonorPts = 0;
-//      for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
-
-//	      // Donor node number
-//	      jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-
-//	      // Calculate radial distance		    
-//        Get_Distance(rbfCoord_i, donor_geometry, jVertex, nDim, rbfVal);		    
-//        Get_RadialBasisValue(rbfVal, config[donorZone]);
-//        if (rbfVal > 0) { numDonorPts++; }
-//        
-//        // Write to vector
-//	      targetVec[rbf_j] = rbfVal;
-//	
-//      }
-//        
-//    	// Calculate coefficient values
-//    	donorR.VecMatMult(targetVec, coeffVec, nVertexDonor);
-//    	
-//    	// Assign coefficient values
-//    	target_geometry->vertex[markTarget][iVertexTarget]->SetnDonorPoints(numDonorPts);
-//		  target_geometry->vertex[markTarget][iVertexTarget]->Allocate_DonorInfo();
-//		  tmpCounter = 0;
-//    	for (unsigned long rbf_j=0; rbf_j<nVertexDonor; rbf_j++) {
-//    		
-//    		if (targetVec[rbf_j] > 0) {
-//    		
-//      		jVertex = donor_geometry->vertex[markDonor][rbf_j]->GetNode();
-//	
-//		      donorGlobalIdx = donor_geometry->node[jVertex]->GetGlobalIndex();
-//		
-//		      target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorPoint(tmpCounter, donorGlobalIdx);
-//		      target_geometry->vertex[markTarget][iVertexTarget]->SetInterpDonorProcessor(tmpCounter, 0);	
-//      		target_geometry->vertex[markTarget][iVertexTarget]->SetDonorCoeff(tmpCounter, coeffVec[rbf_j]);
-//      		
-//      		tmpCounter++;
-//    		}
-//    	}
-//    }
-
-//	  delete [] rbfCoord_i;
-//	  delete [] interfaceCoordLimits;
-//	  delete [] interpCoord;
-//  	delete [] targetVec;
-//  	delete [] coeffVec;
-//  	
-//	  /*--- NEW_CODE_SERIAL_END ---*/
-
     delete[] Buffer_Send_Coord;
     delete[] Buffer_Send_GlobalPoint;
     
@@ -2231,20 +1955,20 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
   #endif
 }
 
-void CRadialBasisFunction::Get_Distance(su2double *coord_i, su2double *coord_j, unsigned short nDim, su2double &dist)
+void CRadialBasisFunction::Get_Distance(su2double *Coord_i, su2double *Coord_j, unsigned short nDim, su2double &dist)
 {
 	dist = 0;
 	for (unsigned short k=0; k<nDim; k++) {
-		dist += pow((coord_i[k] - coord_j[k]), 2);
+		dist += pow((Coord_i[k] - Coord_j[k]), 2);
 	}
 	dist = sqrt(dist);
 }
 
-void CRadialBasisFunction::Get_Distance(su2double *coord_i, CGeometry *geometry_j, unsigned long &node_j, unsigned short nDim, su2double &dist)
+void CRadialBasisFunction::Get_Distance(su2double *Coord_i, CGeometry *geometry_j, unsigned long &node_j, unsigned short nDim, su2double &dist)
 {
 	dist = 0;
 	for (unsigned short k=0; k<nDim; k++) {
-		dist += pow((coord_i[k] -  geometry_j->node[node_j]->GetCoord(k)), 2);
+		dist += pow((Coord_i[k] -  geometry_j->node[node_j]->GetCoord(k)), 2);
 	}
 	dist = sqrt(dist);
 }
