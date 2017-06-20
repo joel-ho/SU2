@@ -291,8 +291,6 @@ public:
   void Set_TransferCoeff(CConfig **config);
   
   void Get_Distance(su2double *coord_i, su2double *coord_j, unsigned short nDim, su2double &dist);
-  
-  void Get_Distance(su2double *coord_i, CGeometry *geometry_j, unsigned long &node_j, unsigned short nDim, su2double &dist);
 
   void Get_RadialBasisValue(su2double &dist, CConfig *config);
 

@@ -1409,7 +1409,7 @@ void CMirror::Set_TransferCoeff(CConfig **config) {
   #endif
 }
 
-/* Radial Basis Function Interpolator */
+/*--- Radial Basis Function Interpolator ---*/
 CRadialBasisFunction::CRadialBasisFunction(void):  CInterpolator() { }
 
 CRadialBasisFunction::CRadialBasisFunction(CGeometry ***geometry_container, CConfig **config,  unsigned int iZone, unsigned int jZone) :  CInterpolator(geometry_container, config, iZone, jZone) {
@@ -1425,9 +1425,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 
 	int rank=MASTER_NODE, nProcessor=SINGLE_NODE;
   int iProcessor, pProcessor;
-  int nCalc;
+  int nPolynomial;
   int mark_donor, mark_target, target_check, donor_check;
-  int *calc_dim_check;
+  int *calc_polynomial_check;
 
   unsigned short iDim, nDim, iMarkerInt, nMarkerInt;    
 
@@ -1436,16 +1436,16 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
   unsigned long nGlobalVertexDonor, iGlobalVertexDonor_end, nLocalM;
   unsigned long point_donor, point_target;
   unsigned long *nVertexDonorInDomain_arr, *nLocalM_arr;
-    
+  
   su2double val_i, val_j;
   su2double interface_coord_tol=1e2*numeric_limits<double>::epsilon();
   su2double *Coord_i, *Coord_j;
   su2double *local_M, *global_M_val_arr, *Buffer_recv_local_M;
-  su2double *global_P, *global_P_limits, *global_P_tmp;
+  su2double *P, *P_limits, *P_tmp;
   su2double *C_inv_trunc, *C_tmp;
   su2double *target_vec, *coeff_vec;
   
-  CSymmetricMatrix *global_M, *global_Mp;
+  CSymmetricMatrix *global_M, *Mp;
 
 #ifdef HAVE_MPI
 
@@ -1479,8 +1479,8 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     /*--- On the target side: find the tag of the boundary sharing the interface ---*/
     mark_target = Find_InterfaceMarker(config[targetZone], iMarkerInt);
 
-    #ifdef HAVE_MPI
-    
+#ifdef HAVE_MPI
+
     donor_check  = -1;
     target_check = -1;
         
@@ -1509,10 +1509,10 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 
     SU2_MPI::Bcast(&target_check, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
         
-    #else
+#else
     donor_check  = mark_donor;
     target_check = mark_target;  
-    #endif
+#endif
     
     /*--- Checks if the zone contains the interface, if not continue to the next step ---*/
     if(target_check == -1 || donor_check == -1)
@@ -1530,7 +1530,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     
     Buffer_Send_nVertex_Donor  = new unsigned long [ 1 ];
 
-    /* Sets MaxLocalVertex_Donor, Buffer_Receive_nVertex_Donor */
+    /*--- Sets MaxLocalVertex_Donor, Buffer_Receive_nVertex_Donor ---*/
     Determine_ArraySize(false, mark_donor, mark_target, nVertexDonor, nDim);
 
     Buffer_Send_Coord          = new su2double     [ MaxLocalVertex_Donor * nDim ];
@@ -1541,34 +1541,33 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     /*-- Collect coordinates, global points, and normal vectors ---*/
     Collect_VertexInfo( false, mark_donor, mark_target, nVertexDonor, nDim, nVertexDonorInDomain);
     
-    
-    // Create array with information about number of local vertices in all processors
-    // Also calculate total number of donor vertices on boundary
+    /*--- Collect information about number of donor vertices in domain for all processors ---*/
+    /*--- Also calculate total number of donor vertices in domain on boundary ---*/
     nVertexDonorInDomain_arr = new unsigned long [nProcessor];
-    #ifdef HAVE_MPI
+#ifdef HAVE_MPI
     SU2_MPI::Allgather(&nVertexDonorInDomain, 1, MPI_UNSIGNED_LONG, nVertexDonorInDomain_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
     SU2_MPI::Allreduce(&nVertexDonorInDomain, &nGlobalVertexDonor, 1, MPI_UNSIGNED_LONG, MPI_SUM, MPI_COMM_WORLD);
-    #else
+#else
     nVertexDonorInDomain_arr[SINGLE_NODE] = nVertexDonorInDomain;
     nGlobalVertexDonor = nVertexDonorInDomain;
-    #endif
+#endif
     
-		// Calculate number of vertices on boundary prior to current processor
+		/*--- Calculate number of vertices on boundary prior to current processor ---*/
     iGlobalVertexDonor_end = 0;
     for (iProcessor=0; iProcessor<=rank; iProcessor++) {
     	iGlobalVertexDonor_end += nVertexDonorInDomain_arr[iProcessor];
     }
     
-    // Send information about size of local_M array
+    /*--- Send information about size of local_M array ---*/
 		nLocalM = nVertexDonorInDomain*(nVertexDonorInDomain+1)/2 + nVertexDonorInDomain*(nGlobalVertexDonor-iGlobalVertexDonor_end);
     nLocalM_arr = new unsigned long [nProcessor];
-    #ifdef HAVE_MPI
+#ifdef HAVE_MPI
     SU2_MPI::Allgather(&nLocalM, 1, MPI_UNSIGNED_LONG, nLocalM_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
-    #else
+#else
     nLocalM_arr[SINGLE_NODE] = nLocalM;
-    #endif
+#endif
     
-    // Initialize local M array and calculate values
+    /*--- Initialize local M array and calculate values ---*/
     local_M = new su2double [nLocalM];  
     Coord_i = new su2double [nDim];
     Coord_j = new su2double [nDim];
@@ -1603,24 +1602,25 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	SU2_MPI::Send(local_M, nLocalM, MPI_DOUBLE, MASTER_NODE, 0, MPI_COMM_WORLD);
     }
     
+    /*--- Assemble global_M ---*/
     if (rank == MASTER_NODE) {
     
     	global_M_val_arr = new su2double [nGlobalVertexDonor*(nGlobalVertexDonor+1)/2];
     	
-    	// Copy master node local_M to global_M
+    	/*--- Copy master node local_M to global_M ---*/
     	iCount = 0;
     	for (iLocalM=0; iLocalM<nLocalM; iLocalM++) {
     		global_M_val_arr[iCount] = local_M[iLocalM];
     		iCount++;
     	}
     	
-    	// Receive local_M from various processors
+    	/*--- Receive local_M from other processors ---*/
 			if (nProcessor > SINGLE_NODE) {
 		  	for (iProcessor=1; iProcessor<nProcessor; iProcessor++) {
 			  	Buffer_recv_local_M = new su2double[nLocalM_arr[iProcessor]];
 			  	SU2_MPI::Recv(Buffer_recv_local_M, nLocalM_arr[iProcessor], MPI_DOUBLE, iProcessor, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			  	
-			  	// Copy processor's local_M to global_M
+			  	/*--- Copy processor's local_M to global_M ---*/
 			  	for (iLocalM=0; iLocalM<nLocalM_arr[iProcessor]; iLocalM++) {
 			  		global_M_val_arr[iCount] = Buffer_recv_local_M[iLocalM];
 			  		iCount++;
@@ -1630,7 +1630,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  	}
     	}
     	
-    	// Initialize symmetric matrix
+    	/*--- Initialize global_M ---*/
     	global_M = new CSymmetricMatrix;
     	global_M->Initialize(nGlobalVertexDonor, global_M_val_arr);
     	global_M_val_arr = NULL;
@@ -1641,17 +1641,19 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     global_M->Initialize(nVertexDonorInDomain, local_M);  
 #endif
     
-    // Invert M matrix
+    /*--- Invert M matrix ---*/
     if (rank == MASTER_NODE)
     {
     	switch (config[donorZone]->GetKindRadialBasisFunction())
     	{
+    	  /*--- Cholesky decompose for basis functions giving positive definite matrix ---*/
 				case WENDLAND_C2:
 				case INV_MULTI_QUADRIC:
 				case GAUSSIAN:
 					global_M->CholeskyDecompose(true);
 					break;
 					
+    	  /*--- LU decompose otherwise ---*/
 				case THIN_PLATE_SPLINE:
 				case MULTI_QUADRIC:
 					global_M->LUDecompose();
@@ -1661,42 +1663,42 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 	    global_M->CalcInv(true);
     }
     
-    calc_dim_check = new int [nDim];
+    calc_polynomial_check = new int [nDim];
     
-		// Calculate C_inv_trunc
+		/*--- Calculate C_inv_trunc ---*/
 		if (rank == MASTER_NODE)
 		{
 		
-			// Fill P matrix and get minimum and maximum values
-			global_P_limits = new su2double [nDim*2];
-			global_P = new su2double [nGlobalVertexDonor*(nDim+1)];
+			/*--- Fill P matrix and get minimum and maximum values ---*/
+			P_limits = new su2double [nDim*2];
+			P = new su2double [nGlobalVertexDonor*(nDim+1)];
 			iCount = 0;
 			for (iProcessor=MASTER_NODE; iProcessor<nProcessor; iProcessor++)
 			{
 				for (iVertexDonor=0; iVertexDonor<nVertexDonorInDomain_arr[iProcessor]; iVertexDonor++)
 				{
-					global_P[iCount*(nDim+1)] = 1;
+					P[iCount*(nDim+1)] = 1;
 					for (iDim=0; iDim<nDim; iDim++)
 					{
-						global_P[iCount*(nDim+1)+iDim+1] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+iVertexDonor)*nDim + iDim];
+						P[iCount*(nDim+1)+iDim+1] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+iVertexDonor)*nDim + iDim];
 					
 						if (iCount == 0)
 						{
-							global_P_limits[iDim*nDim] = global_P[iCount*(nDim+1)+iDim+1];
-							global_P_limits[iDim*nDim+1] = global_P[iCount*(nDim+1)+iDim+1];
-							calc_dim_check[iDim] = 1;
+							P_limits[iDim*nDim] = P[iCount*(nDim+1)+iDim+1];
+							P_limits[iDim*nDim+1] = P[iCount*(nDim+1)+iDim+1];
+							calc_polynomial_check[iDim] = 1;
 						}
 						else
 						{
-							// Get minimum coordinate value
-							global_P_limits[iDim*nDim] = \
-							(global_P[iCount*(nDim+1)+iDim+1] < global_P_limits[iDim*nDim]) ? \
-							global_P[iCount*(nDim+1)+iDim+1] : global_P_limits[iDim*nDim];
+							/*--- Get minimum coordinate value ---*/
+							P_limits[iDim*nDim] = \
+							(P[iCount*(nDim+1)+iDim+1] < P_limits[iDim*nDim]) ? \
+							P[iCount*(nDim+1)+iDim+1] : P_limits[iDim*nDim];
 
-							// Get maximum coordinate value
-							global_P_limits[iDim*nDim+1] = \
-							(global_P[iCount*(nDim+1)+iDim+1] > global_P_limits[iDim*nDim+1]) ? \
-							global_P[iCount*(nDim+1)+iDim+1] : global_P_limits[iDim*nDim+1];
+							/*--- Get maximum coordinate value ---*/
+							P_limits[iDim*nDim+1] = \
+							(P[iCount*(nDim+1)+iDim+1] > P_limits[iDim*nDim+1]) ? \
+							P[iCount*(nDim+1)+iDim+1] : P_limits[iDim*nDim+1];
 						}
 					
 					}
@@ -1704,51 +1706,47 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 				}
 			}
 			
-			// Check for any constant coordinates which will make RBF matrix singular
-			nCalc = nDim;
+			/*--- Check for any constant coordinates which will make RBF matrix singular ---*/
+			nPolynomial = nDim;
 			for (iDim=0; iDim<nDim; iDim++)
 			{
-				if ( (global_P_limits[iDim*2+1]-global_P_limits[iDim*2]) < interface_coord_tol )
+				if ( (P_limits[iDim*2+1]-P_limits[iDim*2]) < interface_coord_tol )
 				{
-					calc_dim_check[iDim] = 0;
-					nCalc--;
+					calc_polynomial_check[iDim] = 0;
+					nPolynomial--;
 				}
 			}
 			
-			if (nCalc < nDim)
+			if (nPolynomial < nDim)
 			{
-				global_P_tmp = new su2double [nGlobalVertexDonor*(iCount+1)];
+				P_tmp = new su2double [nGlobalVertexDonor*(iCount+1)];
 				
 				iCount = 0;
 				for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
 				{
-					global_P_tmp[iCount] = 1;
+					P_tmp[iCount] = 1;
 					iCount++;
 					for (iDim=0; iDim<nDim; iDim++)
 					{
-						if (calc_dim_check[iDim] == 1)
+						if (calc_polynomial_check[iDim] == 1)
 						{
-							global_P_tmp[iCount] = global_P[iVertexDonor*(nDim+1)+iDim+1];
+							P_tmp[iCount] = P[iVertexDonor*(nDim+1)+iDim+1];
 							iCount++;
 						}
 					}
 				}
 				
-				delete [] global_P;
-				global_P = global_P_tmp;
-				global_P_tmp = NULL;
+				delete [] P;
+				P = P_tmp;
+				P_tmp = NULL;
 			}
 			
-		}
-    
-    // Calculate global_Mp
-    if (rank == MASTER_NODE)
-    {
-    	global_Mp = new CSymmetricMatrix;
-    	global_Mp->Initialize(nCalc+1);
-    	for (int m=0; m<nCalc+1; m++)
+      /*--- Calculate Mp ---*/
+    	Mp = new CSymmetricMatrix;
+    	Mp->Initialize(nPolynomial+1);
+    	for (int m=0; m<nPolynomial+1; m++)
     	{
-    		for (int n=m; n<nCalc+1; n++)
+    		for (int n=m; n<nPolynomial+1; n++)
     		{
     		
     			val_i = 0;
@@ -1758,50 +1756,52 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     				val_j = 0;
     				for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
 		  			{
-		  				val_j += global_M->Read(iVertexDonor, jVertexDonor)*global_P[jVertexDonor*(nCalc+1)+n];
+		  				val_j += global_M->Read(iVertexDonor, jVertexDonor)*P[jVertexDonor*(nPolynomial+1)+n];
 		  			}
 		  			
-		  			val_i += val_j*global_P[iVertexDonor*(nCalc+1)+m];
+		  			val_i += val_j*P[iVertexDonor*(nPolynomial+1)+m];
 		  			
     			}
     			
-    			global_Mp->Write(m, n, val_i);
+    			Mp->Write(m, n, val_i);
     			
     		}
     	}
     	
-    	global_Mp->CalcInv(true);
+    	Mp->CalcInv(true);
     	
-    	// Calculate M_p*P*M_inv
-    	C_inv_trunc = new su2double [(nGlobalVertexDonor+nCalc+1)*nGlobalVertexDonor];
-    	for (int m=0; m<nCalc+1; m++)
+    	/*--- Calculate M_p*P*M_inv ---*/
+    	C_inv_trunc = new su2double [(nGlobalVertexDonor+nPolynomial+1)*nGlobalVertexDonor];
+    	for (int m=0; m<nPolynomial+1; m++)
     	{
     		for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
     		{
     			val_i = 0;
-    			for (int n=0; n<nCalc+1; n++)
+    			for (int n=0; n<nPolynomial+1; n++)
     			{
     				val_j = 0;
     				for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
     				{
-    					val_j += global_P[jVertexDonor*(nCalc+1)+n]*global_M->Read(jVertexDonor, iVertexDonor);
+    					val_j += P[jVertexDonor*(nPolynomial+1)+n]*global_M->Read(jVertexDonor, iVertexDonor);
     				}
-    				val_i += val_j*global_Mp->Read(m, n);
+    				val_i += val_j*Mp->Read(m, n);
     			}
-	    		C_inv_trunc[m*nGlobalVertexDonor+iVertexDonor] = val_i; // Row major order
+    			
+    			/*--- Save in row major order ---*/
+	    		C_inv_trunc[m*nGlobalVertexDonor+iVertexDonor] = val_i;
     		}  		
     	}
     	
-    	// Calculate (I - P'*M_p*P*M_inv)
+    	/*--- Calculate (I - P'*M_p*P*M_inv) ---*/
     	C_tmp = new su2double [nGlobalVertexDonor*nGlobalVertexDonor];
     	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++) 
     	{
     		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
     		{
     			val_i = 0;
-    			for (int m=0; m<nCalc+1; m++)
+    			for (int m=0; m<nPolynomial+1; m++)
     			{
-    				val_i += global_P[iVertexDonor*(nCalc+1)+m]*C_inv_trunc[m*nGlobalVertexDonor+jVertexDonor];
+    				val_i += P[iVertexDonor*(nPolynomial+1)+m]*C_inv_trunc[m*nGlobalVertexDonor+jVertexDonor];
     			}
     			C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor] = -val_i;
     			
@@ -1810,33 +1810,34 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     		}
     	}
     	
-    	// Calculate M_inv*(I - P'*M_p*P*M_inv)
+    	/*--- Calculate M_inv*(I - P'*M_p*P*M_inv) ---*/
     	global_M->MatMatMult(true, C_tmp, nGlobalVertexDonor, true);
     	
-    	// Write to C_inv_trunc matrix
+    	/*--- Write to C_inv_trunc matrix ---*/
     	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
     	{
     		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
     		{
-    			C_inv_trunc[(iVertexDonor+nCalc+1)*(nGlobalVertexDonor)+jVertexDonor] = C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor];
+    			C_inv_trunc[(iVertexDonor+nPolynomial+1)*(nGlobalVertexDonor)+jVertexDonor] = C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor];
     		}
     	}
     	
     }
     
-    #ifdef HAVE_MPI
-	  SU2_MPI::Bcast(&nCalc, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
-		SU2_MPI::Bcast(calc_dim_check, nDim, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
+#ifdef HAVE_MPI
+	  SU2_MPI::Bcast(&nPolynomial, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
+		SU2_MPI::Bcast(calc_polynomial_check, nDim, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
     
     if (rank != MASTER_NODE)
     {
-    	C_inv_trunc = new su2double [(nGlobalVertexDonor+nCalc+1)*nGlobalVertexDonor];
+    	C_inv_trunc = new su2double [(nGlobalVertexDonor+nPolynomial+1)*nGlobalVertexDonor];
     }
 
-  	SU2_MPI::Bcast(C_inv_trunc, (nGlobalVertexDonor+nCalc+1)*nGlobalVertexDonor, MPI_DOUBLE, MASTER_NODE, MPI_COMM_WORLD);
-    #endif
+  	SU2_MPI::Bcast(C_inv_trunc, (nGlobalVertexDonor+nPolynomial+1)*nGlobalVertexDonor, MPI_DOUBLE, MASTER_NODE, MPI_COMM_WORLD);
+#endif
     
-    target_vec = new su2double [nGlobalVertexDonor+nCalc+1];
+    /*--- Calculate H matrix ---*/
+    target_vec = new su2double [nGlobalVertexDonor+nPolynomial+1];
     coeff_vec = new su2double [nGlobalVertexDonor];
     for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) 
     {
@@ -1844,8 +1845,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     
 		  if ( target_geometry->node[point_target]->GetDomain() ) 
 		  {
-		  	
-		  	
 		  	iCount = 0;
 		  	target_vec[iCount] = 1;
 		  	iCount++;
@@ -1854,7 +1853,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  	{
 		  		Coord_i[iDim] = target_geometry->node[point_target]->GetCoord(iDim);
 		  		
-		  		if (calc_dim_check[iDim] == 1)
+		  		if (calc_polynomial_check[iDim] == 1)
 		  		{
 		  			target_vec[iCount] = Coord_i[iDim];
 		  			iCount++;
@@ -1877,14 +1876,14 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
 		  	{
 		  		coeff_vec[iVertexDonor] = 0;
-		  		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor+nCalc+1; jVertexDonor++)
+		  		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor+nPolynomial+1; jVertexDonor++)
 		  		{
 		  			coeff_vec[iVertexDonor] += target_vec[jVertexDonor]*C_inv_trunc[jVertexDonor*nGlobalVertexDonor+iVertexDonor];
 		  		}
 		  	}
 				
 		  	iCount = 0;
-		  	for (unsigned long iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
+		  	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
 		  	{
 		  		if ( coeff_vec[iVertexDonor] != 0 ) // ( abs(coeff_vec[iVertexDonor]) > interface_coord_tol )
 		  		{
@@ -1898,7 +1897,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  	jCount = 0;
 		  	for (iProcessor=0; iProcessor<nProcessor; iProcessor++)
 		  	{
-		  		for (unsigned long iVertexDonor=0; iVertexDonor<nVertexDonorInDomain_arr[iProcessor]; iVertexDonor++)
+		  		for (iVertexDonor=0; iVertexDonor<nVertexDonorInDomain_arr[iProcessor]; iVertexDonor++)
 		  		{
 		  			if ( coeff_vec[iCount] != 0 ) // ( abs(coeff_vec[iCount]) > interface_coord_tol )
 						{
@@ -1915,25 +1914,26 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  }
 		}
     
-    
-    // Memory management
+    /*--- Memory management ---*/
+    delete [] calc_polynomial_check;
     delete [] nVertexDonorInDomain_arr;
     delete [] nLocalM_arr;
-    delete [] local_M;
     delete [] Coord_i;
     delete [] Coord_j;
+    delete [] local_M;
     delete [] C_inv_trunc;
     delete [] target_vec;
     delete [] coeff_vec;
     
     if (rank == MASTER_NODE)
     {
-		  delete global_M;
-    	delete [] calc_dim_check;
-    	delete [] global_P_limits;
-    	delete [] global_P;
-    	delete global_Mp;
+      delete [] global_M_val_arr;
+      delete [] P;
+      delete [] P_limits;
+      delete [] P_tmp;
     	delete [] C_tmp;
+    	delete global_M;
+    	delete Mp;
     }
     
     
@@ -1949,10 +1949,10 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 
   delete[] Buffer_Receive_nVertex_Donor;
 
-  #ifdef HAVE_MPI
+#ifdef HAVE_MPI
   if (rank == MASTER_NODE) 
     delete [] Buffer_Recv_mark;
-  #endif
+#endif
 }
 
 void CRadialBasisFunction::Get_Distance(su2double *Coord_i, su2double *Coord_j, unsigned short nDim, su2double &dist)
@@ -1964,18 +1964,10 @@ void CRadialBasisFunction::Get_Distance(su2double *Coord_i, su2double *Coord_j, 
 	dist = sqrt(dist);
 }
 
-void CRadialBasisFunction::Get_Distance(su2double *Coord_i, CGeometry *geometry_j, unsigned long &node_j, unsigned short nDim, su2double &dist)
-{
-	dist = 0;
-	for (unsigned short k=0; k<nDim; k++) {
-		dist += pow((Coord_i[k] -  geometry_j->node[node_j]->GetCoord(k)), 2);
-	}
-	dist = sqrt(dist);
-}
-
 void CRadialBasisFunction::Get_RadialBasisValue(su2double &dist, CConfig *config)
 {	
 	switch (config->GetKindRadialBasisFunction()) {
+	
 		case WENDLAND_C2:
 		  dist /= config->GetRadialBasisFunctionParameter();
 		  dist = (dist<1) ? pow((1-dist), 4)*(4*dist+1) : 0;
