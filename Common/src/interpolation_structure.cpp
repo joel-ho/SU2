@@ -410,48 +410,6 @@ void CNearestNeighbor::Set_TransferCoeff(CConfig **config) {
 
     /*-- Collect coordinates, global points, and normal vectors ---*/
     Collect_VertexInfo( false, markDonor, markTarget, nVertexDonor, nDim );
-    
-    // PRINT_START
-    int nLocalVertex_Donor=0, tmp_node=0, tmp_global_idx=0, *nodes, *nodes_local, *global_idx, *global_idx_local;
-    
-    nodes = new int [nVertexDonor];
-    nodes_local = new int [nVertexDonor];
-    global_idx = new int [nVertexDonor];
-    global_idx_local = new int [nVertexDonor];
-    
-    for (int tmp_counter=0; tmp_counter<nVertexDonor; tmp_counter++) {
-    	tmp_node = donor_geometry->vertex[markDonor][tmp_counter]->GetNode();
-    	
-    	tmp_global_idx = donor_geometry->node[tmp_node]->GetGlobalIndex();
-    	
-    	nodes[tmp_counter] = tmp_node;
-    	global_idx[tmp_counter] = tmp_global_idx;
-    	
-    	if (donor_geometry->node[tmp_node]->GetDomain()) { 
-    		nLocalVertex_Donor++; 
-    		nodes_local[tmp_counter] = tmp_node;
-    		global_idx_local[tmp_counter] = tmp_global_idx;
-    		
-    	}
-    	else {
-    		nodes_local[tmp_counter] = -999;
-    		global_idx_local[tmp_counter] = -999;
-    	}
-    }
-    
-    cout << "markDonor: " << markDonor << ", rank: " << rank << ", nVertexDonor: " << nVertexDonor << ", nLocalVertex_Donor: " << nLocalVertex_Donor << ", global_idx: [";
-    for (int tmp_counter=0; tmp_counter<nVertexDonor; tmp_counter++) {cout << global_idx[tmp_counter] << ", ";} 
-    cout << "], global_idx_local: [";
-    for (int tmp_counter=0; tmp_counter<nVertexDonor; tmp_counter++) {cout << global_idx_local[tmp_counter] << ", ";} 
-    cout << "]" << endl;
-		if (rank == 0) {
-			cout << "markDonor: " << markDonor << ", Buffer_Receive_GlobalPoint: [";
-			for (int tmp_i=0; tmp_i<nProcessor * MaxLocalVertex_Donor; tmp_i++) {
-				cout << Buffer_Receive_GlobalPoint[tmp_i] << ", ";
-			}
-			cout << "]" << endl;  
-		}
-    // PRINT_END
 
     /*--- Compute the closest point to a Near-Field boundary point ---*/
     maxdist = 0.0;
@@ -1541,14 +1499,14 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     /*-- Collect coordinates, global points, and normal vectors ---*/
     Collect_VertexInfo( false, mark_donor, mark_target, nVertexDonor, nDim, nVertexDonorInDomain);
     
-    /*--- Collect information about number of donor vertices in domain for all processors ---*/
-    /*--- Also calculate total number of donor vertices in domain on boundary ---*/
+    /*--- Collect information about number of donor vertices in domain for ---*/
+    /*--- Also calculate total number of donor vertices across all processors in domain on boundary ---*/
     nVertexDonorInDomain_arr = new unsigned long [nProcessor];
 #ifdef HAVE_MPI
     SU2_MPI::Allgather(&nVertexDonorInDomain, 1, MPI_UNSIGNED_LONG, nVertexDonorInDomain_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
     SU2_MPI::Allreduce(&nVertexDonorInDomain, &nGlobalVertexDonor, 1, MPI_UNSIGNED_LONG, MPI_SUM, MPI_COMM_WORLD);
 #else
-    nVertexDonorInDomain_arr[SINGLE_NODE] = nVertexDonorInDomain;
+    nVertexDonorInDomain_arr[MASTER_NODE] = nVertexDonorInDomain;
     nGlobalVertexDonor = nVertexDonorInDomain;
 #endif
     
@@ -1560,11 +1518,12 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     
     /*--- Send information about size of local_M array ---*/
 		nLocalM = nVertexDonorInDomain*(nVertexDonorInDomain+1)/2 + nVertexDonorInDomain*(nGlobalVertexDonor-iGlobalVertexDonor_end);
+		
     nLocalM_arr = new unsigned long [nProcessor];
 #ifdef HAVE_MPI
     SU2_MPI::Allgather(&nLocalM, 1, MPI_UNSIGNED_LONG, nLocalM_arr, 1, MPI_UNSIGNED_LONG, MPI_COMM_WORLD);
 #else
-    nLocalM_arr[SINGLE_NODE] = nLocalM;
+    nLocalM_arr[MASTER_NODE] = nLocalM;
 #endif
     
     /*--- Initialize local M array and calculate values ---*/
@@ -1605,7 +1564,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     /*--- Assemble global_M ---*/
     if (rank == MASTER_NODE) {
     
-    	global_M_val_arr = new su2double [nGlobalVertexDonor*(nGlobalVertexDonor+1)/2];
+      global_M_val_arr = new su2double [nGlobalVertexDonor*(nGlobalVertexDonor+1)/2];
     	
     	/*--- Copy master node local_M to global_M ---*/
     	iCount = 0;
@@ -1633,12 +1592,11 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	/*--- Initialize global_M ---*/
     	global_M = new CSymmetricMatrix;
     	global_M->Initialize(nGlobalVertexDonor, global_M_val_arr);
-    	global_M_val_arr = NULL;
 	    
     }
 #else
     global_M = new CSymmetricMatrix;
-    global_M->Initialize(nVertexDonorInDomain, local_M);  
+    global_M->Initialize(nVertexDonorInDomain, local_M);
 #endif
     
     /*--- Invert M matrix ---*/
@@ -1915,27 +1873,26 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		}
     
     /*--- Memory management ---*/
-    delete [] calc_polynomial_check;
     delete [] nVertexDonorInDomain_arr;
     delete [] nLocalM_arr;
+    delete [] local_M;
     delete [] Coord_i;
     delete [] Coord_j;
-    delete [] local_M;
+    delete [] calc_polynomial_check;
     delete [] C_inv_trunc;
     delete [] target_vec;
-    delete [] coeff_vec;
+    delete [] coeff_vec;   
     
     if (rank == MASTER_NODE)
     {
-      delete [] global_M_val_arr;
-      delete [] P;
+      delete global_M;
       delete [] P_limits;
+      delete [] P;
       delete [] P_tmp;
-    	delete [] C_tmp;
-    	delete global_M;
     	delete Mp;
+    	delete [] C_inv_trunc;
+    	delete [] C_tmp;
     }
-    
     
     delete[] Buffer_Send_Coord;
     delete[] Buffer_Send_GlobalPoint;
@@ -1944,6 +1901,13 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     delete[] Buffer_Receive_GlobalPoint;
 
     delete[] Buffer_Send_nVertex_Donor;
+    
+#ifdef HAVE_MPI
+    if (rank == MASTER_NODE)
+    {
+      delete [] global_M_val_arr;
+    }
+#endif
 
   }
 
@@ -2037,7 +2001,11 @@ void CSymmetricMatrix::Initialize(int N, double *formed_val_vec)
 	
 	sz = N;	
 	num_val = sz*(sz+1)/2;
-	val_vec = formed_val_vec;
+	
+	val_vec = new double [num_val];
+	for (unsigned long i=0; i<num_val; i++) {val_vec[i] = formed_val_vec[i];}
+	
+//	val_vec = formed_val_vec;
 	
 	initialized = true;
 }
