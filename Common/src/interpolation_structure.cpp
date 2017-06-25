@@ -1499,7 +1499,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     /*-- Collect coordinates, global points, and normal vectors ---*/
     Collect_VertexInfo( false, mark_donor, mark_target, nVertexDonor, nDim, nVertexDonorInDomain);
     
-    /*--- Collect information about number of donor vertices in domain for ---*/
+    /*--- Collect information about number of donor vertices in domain ---*/
     /*--- Also calculate total number of donor vertices across all processors in domain on boundary ---*/
     nVertexDonorInDomain_arr = new unsigned long [nProcessor];
 #ifdef HAVE_MPI
@@ -1517,7 +1517,8 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     }
     
     /*--- Send information about size of local_M array ---*/
-		nLocalM = nVertexDonorInDomain*(nVertexDonorInDomain+1)/2 + nVertexDonorInDomain*(nGlobalVertexDonor-iGlobalVertexDonor_end);
+		nLocalM = nVertexDonorInDomain*(nVertexDonorInDomain+1)/2 \
+		  + nVertexDonorInDomain*(nGlobalVertexDonor-iGlobalVertexDonor_end);
 		
     nLocalM_arr = new unsigned long [nProcessor];
 #ifdef HAVE_MPI
@@ -1642,21 +1643,21 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 					
 						if (iCount == 0)
 						{
-							P_limits[iDim*nDim] = P[iCount*(nDim+1)+iDim+1];
-							P_limits[iDim*nDim+1] = P[iCount*(nDim+1)+iDim+1];
+							P_limits[iDim*2] = P[iCount*(nDim+1)+iDim+1];
+							P_limits[iDim*2+1] = P[iCount*(nDim+1)+iDim+1];
 							calc_polynomial_check[iDim] = 1;
 						}
 						else
 						{
 							/*--- Get minimum coordinate value ---*/
-							P_limits[iDim*nDim] = \
-							(P[iCount*(nDim+1)+iDim+1] < P_limits[iDim*nDim]) ? \
-							P[iCount*(nDim+1)+iDim+1] : P_limits[iDim*nDim];
+							P_limits[iDim*2] = \
+							(P[iCount*(nDim+1)+iDim+1] < P_limits[iDim*2]) ? \
+							P[iCount*(nDim+1)+iDim+1] : P_limits[iDim*2];
 
 							/*--- Get maximum coordinate value ---*/
-							P_limits[iDim*nDim+1] = \
-							(P[iCount*(nDim+1)+iDim+1] > P_limits[iDim*nDim+1]) ? \
-							P[iCount*(nDim+1)+iDim+1] : P_limits[iDim*nDim+1];
+							P_limits[iDim*2+1] = \
+							(P[iCount*(nDim+1)+iDim+1] > P_limits[iDim*2+1]) ? \
+							P[iCount*(nDim+1)+iDim+1] : P_limits[iDim*2+1];
 						}
 					
 					}
@@ -1677,7 +1678,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 			
 			if (nPolynomial < nDim)
 			{
-				P_tmp = new su2double [nGlobalVertexDonor*(iCount+1)];
+				P_tmp = new su2double [nGlobalVertexDonor*(nPolynomial+1)];
 				
 				iCount = 0;
 				for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
@@ -1694,9 +1695,10 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 					}
 				}
 				
-				delete [] P;
-				P = P_tmp;
-				P_tmp = NULL;
+				for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor*(nPolynomial+1); iVertexDonor++) {
+				  P[iVertexDonor] = P_tmp[iVertexDonor];
+				}
+				delete [] P_tmp;
 			}
 			
       /*--- Calculate Mp ---*/
@@ -1888,9 +1890,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       delete global_M;
       delete [] P_limits;
       delete [] P;
-      delete [] P_tmp;
     	delete Mp;
-    	delete [] C_inv_trunc;
     	delete [] C_tmp;
     }
     
