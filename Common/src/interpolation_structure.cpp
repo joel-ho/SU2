@@ -1609,17 +1609,34 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 				case WENDLAND_C2:
 				case INV_MULTI_QUADRIC:
 				case GAUSSIAN:
+
+#ifdef HAVE_LAPACK
+          global_M->CalcInv_dpotri();
+#else
 					global_M->CholeskyDecompose(true);
+#endif
+
 					break;
 					
     	  /*--- LU decompose otherwise ---*/
 				case THIN_PLATE_SPLINE:
 				case MULTI_QUADRIC:
+
+#ifdef HAVE_LAPACK
+          cout << "Calculating inverse with LAPACK... ";
+          global_M->CalcInv_dsptri();
+          cout << "Done." << endl;
+#else
 					global_M->LUDecompose();
+#endif
+
 					break;
 			}
 			
+#ifndef HAVE_LAPACK
 	    global_M->CalcInv(true);
+#endif
+
     }
     
     calc_polynomial_check = new int [nDim];
@@ -1702,6 +1719,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 			}
 			
       /*--- Calculate Mp ---*/
+      cout << "Calculating Mp..." << endl;
     	Mp = new CSymmetricMatrix;
     	Mp->Initialize(nPolynomial+1);
     	for (int m=0; m<nPolynomial+1; m++)
@@ -1727,10 +1745,10 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     			
     		}
     	}
-    	
     	Mp->CalcInv(true);
     	
     	/*--- Calculate M_p*P*M_inv ---*/
+    	cout << "Calculating M_p*P*M_inv..." << endl;
     	C_inv_trunc = new su2double [(nGlobalVertexDonor+nPolynomial+1)*nGlobalVertexDonor];
     	for (int m=0; m<nPolynomial+1; m++)
     	{
@@ -1753,6 +1771,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	}
     	
     	/*--- Calculate (I - P'*M_p*P*M_inv) ---*/
+    	cout << "Calculating I - P'*M_p*P*M_inv..." << endl;
     	C_tmp = new su2double [nGlobalVertexDonor*nGlobalVertexDonor];
     	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++) 
     	{
@@ -1763,7 +1782,14 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     			{
     				val_i += P[iVertexDonor*(nPolynomial+1)+m]*C_inv_trunc[m*nGlobalVertexDonor+jVertexDonor];
     			}
+    			
+#ifdef HAVE_LAPACK
+    			/*--- Save in col major order ---*/
+    			C_tmp[jVertexDonor*(nGlobalVertexDonor)+iVertexDonor] = -val_i;
+#else
+          /*--- Save in row major order ---*/
     			C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor] = -val_i;
+#endif
     			
     			if (jVertexDonor==iVertexDonor) { C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor] += 1; }
     			
@@ -1771,9 +1797,15 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     	}
     	
     	/*--- Calculate M_inv*(I - P'*M_p*P*M_inv) ---*/
+    	cout << "Calculating M_inv*(I - P'*M_p*P*M_inv)..." << endl;
+#ifdef HAVE_LAPACK
+    	global_M->MatMatMult(true, C_tmp, nGlobalVertexDonor, false);
+#else
     	global_M->MatMatMult(true, C_tmp, nGlobalVertexDonor, true);
+#endif
     	
     	/*--- Write to C_inv_trunc matrix ---*/
+    	cout << "Writing to C_inv_trunc matrix..." << endl;
     	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
     	{
     		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
@@ -1782,7 +1814,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     		}
     	}
     	
-    }
+    } // if (rank == MASTER_NODE)
     
 #ifdef HAVE_MPI
 	  SU2_MPI::Bcast(&nPolynomial, 1, MPI_INT, MASTER_NODE, MPI_COMM_WORLD);
@@ -1797,6 +1829,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 #endif
     
     /*--- Calculate H matrix ---*/
+    cout << "Calculating H matrix... ";
     target_vec = new su2double [nGlobalVertexDonor+nPolynomial+1];
     coeff_vec = new su2double [nGlobalVertexDonor];
     for (iVertexTarget = 0; iVertexTarget < nVertexTarget; iVertexTarget++) 
@@ -1873,6 +1906,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  	
 		  }
 		}
+		cout << "Done." << endl;
     
     /*--- Memory management ---*/
     delete [] nVertexDonorInDomain_arr;
@@ -2308,6 +2342,41 @@ void CSymmetricMatrix::CalcInv(bool overwrite)
 	
 }
 
+void CSymmetricMatrix::CalcInv_dsptri()
+{
+
+#ifdef HAVE_LAPACK
+
+  char *uplo;
+  int *ipiv, *info;
+  double *work;
+  
+  uplo = new char [1];
+  uplo[0] = 'L';
+  
+  ipiv = new int [sz];
+  info = new int [1];
+  work = new double [sz];
+  
+  dsptrf_(uplo, &sz, val_vec, ipiv, info);
+  dsptri_(uplo, &sz, val_vec, ipiv, work, info);
+
+  delete [] uplo;
+  delete [] ipiv;
+  delete [] info;
+  delete [] work;
+  
+  if ( decompose_vec ) { delete [] decompose_vec; }
+  decompose_vec = NULL;
+	decomposed = none;
+	inversed = true;
+	
+#endif
+  
+}
+
+void CSymmetricMatrix::CalcInv_dpotri() {}
+
 double CSymmetricMatrix::Read(int i, int j)
 {
 	if (! initialized) {
@@ -2475,13 +2544,58 @@ void CSymmetricMatrix::MatMatMult(bool left_mult, double *mat_vec, int N, bool r
 	
 	tmp_res = new double [sz*N];
 	
+#ifdef HAVE_LAPACK
+  
+  char side[1]={'L'}, uplo[1]={'L'};
+  double *val_full, *tmp_mat_vec, alpha=1, beta=0;
+  
+  /*--- Copy packed storage to full storage to use BLAS level 3 routine ---*/
+  val_full = new double [sz*sz];
+  for (unsigned long i=0; i<sz; i++) {
+    for (unsigned long j=i; j<sz; j++) {
+      val_full[i+sz*j] = val_vec[CalcIdx(i, j)]; // val_full in column major storage
+      if (i != j) {
+        val_full[j+sz*i] = val_full[i+sz*j];
+      }
+    }
+  }
+
+  /*--- Transpose input matrix ---*/
+  if (row_major_order) {
+    tmp_mat_vec = new double [sz*N];
+    for (unsigned long i=0; i<sz; i++) {
+      for (unsigned long j=0; j<N; j++) {
+        tmp_mat_vec[i+sz*j] = mat_vec[j+N*i];
+      }
+	  }
+	}
+	else {
+	  tmp_mat_vec = mat_vec;
+	}
+  
+  cout << "Performing matrix matrix multiplication with BLAS... ";
+  dsymm_(side, uplo, &sz, &N, &alpha, val_full, &sz, tmp_mat_vec, &sz, &beta, tmp_res, &sz);
+  cout << "Done." << endl;
+  
+  /*--- Transpose output matrix ---*/
+  for (unsigned long i=0; i<sz; i++) {
+    for (unsigned long j=0; j<N; j++) {
+      mat_vec[j+i*N] = tmp_res[i+sz*j];
+    }
+	}
+  
+  delete [] val_full;
+  if (row_major_order) { delete [] tmp_mat_vec; }
+  
+#else
+
 	if (left_mult) {
 	  if (row_major_order) {
 		  for (unsigned long i=0; i<sz; i++) {
 			  for (unsigned long j=0; j<N; j++) {
 				  tmp_res[i*N+j] = 0;
 				  for (unsigned long k=0; k<sz; k++) {
-					  tmp_res[i*N+j] += Read(i, k)*mat_vec[k*N+j];
+					  tmp_res[i*N+j] += val_vec[CalcIdx(i, j)]*mat_vec[k*N+j];
 				  }
 			  }
 		  }
@@ -2493,7 +2607,7 @@ void CSymmetricMatrix::MatMatMult(bool left_mult, double *mat_vec, int N, bool r
 			  for (unsigned long j=0; j<N; j++) {
 				  tmp_res[j*sz+i] = 0;
 				  for (unsigned long k=0; k<sz; k++) {
-					  tmp_res[j*sz+i] += Read(i, k)*mat_vec[j*sz+k];
+					  tmp_res[j*sz+i] += val_vec[CalcIdx(i, j)]*mat_vec[j*sz+k];
 				  }
 			  }
 		  }
@@ -2506,7 +2620,9 @@ void CSymmetricMatrix::MatMatMult(bool left_mult, double *mat_vec, int N, bool r
 	for (unsigned long i=0; i<sz*N; i++) {
 		mat_vec[i] = tmp_res[i];
 	}
-	
+
+#endif
+
 	delete [] tmp_res;
 	
 }

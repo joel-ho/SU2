@@ -46,6 +46,13 @@
 #include "geometry_structure.hpp"
 #include "vector_structure.hpp"
 
+#ifdef HAVE_LAPACK
+extern "C" void dsptrf_(char*, int*, double*, int*, int*);
+extern "C" void dsptri_(char*, int*, double*, int*, double*, int*);
+extern "C" void dsymm_(char*, char*, int*, int*, double*, double*, int*, \
+  double*, int*, double*, double*, int*);
+#endif
+
 using namespace std;
 
 
@@ -333,6 +340,9 @@ class CSymmetricMatrix{
 		void CholeskyDecompose(bool overwrite);
 		void LUDecompose();
 		void CalcInv(bool overwrite);
+		
+		void CalcInv_dsptri();
+		void CalcInv_dpotri();
 		
 		double ReadL(int i, int j);
 		double ReadU(int i, int j);
