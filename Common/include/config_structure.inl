@@ -1558,6 +1558,8 @@ inline unsigned short CConfig::GetKindInterpolation(void) { return Kind_Interpol
 
 inline unsigned short CConfig::GetKindRadialBasisFunction(void) { return Kind_RadialBasisFunction; }
 
+inline bool CConfig::GetRadialBasisFunctionPolynomialOption(void) {return RadialBasisFunction_PolynomialOption; }
+
 inline su2double CConfig::GetRadialBasisFunctionParameter(void) {return RadialBasisFunction_Parameter; }
 
 inline bool CConfig::GetConservativeInterpolation(void) { return ConservativeInterpolation; }

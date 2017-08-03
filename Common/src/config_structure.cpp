@@ -1728,6 +1728,10 @@ void CConfig::SetConfig_Options(unsigned short val_iZone, unsigned short val_nZo
    */
   addEnumOption("KIND_RADIAL_BASIS_FUNCTION", Kind_RadialBasisFunction, RadialBasisFunction_Map, WENDLAND_C2);
   
+  /*  DESCRIPTION: Use polynomial term in radial basis function interpolation.
+  *  Options: NO, YES \ingroup Config */
+  addBoolOption("RADIAL_BASIS_FUNCTION_POLYNOMIAL_TERM", RadialBasisFunction_PolynomialOption, true);
+  
   /* DESCRIPTION: Radius for radial basis function */
   addDoubleOption("RADIAL_BASIS_FUNCTION_PARAMETER", RadialBasisFunction_Parameter, 1);
 

@@ -297,6 +297,8 @@ public:
    */
   void Set_TransferCoeff(CConfig **config);
   
+  void Check_PolynomialTerms(int m, unsigned long n, double *P, int *skip_row, int *keep_row, double max_diff_tol, bool P_transposed, int &n_polynomial);
+  
   void Get_Distance(su2double *coord_i, su2double *coord_j, unsigned short nDim, su2double &dist);
 
   void Get_RadialBasisValue(su2double &dist, CConfig *config);
@@ -358,6 +360,6 @@ class CSymmetricMatrix{
 		void VecMatMult(double *v, double *res, int N);
 		void MatVecMult(double *v);
 		
-		void MatMatMult(bool left_mult, double *mat_vec, int N, bool row_major_order);
+		void MatMatMult(bool left_mult, double *mat_vec, int N);
 		
 };
