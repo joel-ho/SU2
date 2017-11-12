@@ -1530,7 +1530,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 #endif
     
     /*--- Initialize local M array and calculate values ---*/
-    if (rank == MASTER_NODE) { cout << "Assembling donor zone radial basis function matrix... " << endl; }
     local_M = new su2double [nLocalM];  
     Coord_i = new su2double [nDim];
     Coord_j = new su2double [nDim];
@@ -1602,12 +1601,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
     global_M->Initialize(nVertexDonorInDomain, local_M);
 #endif
     
-    if (rank == MASTER_NODE) { cout << "\tDone." << endl; }
-    
     /*--- Invert M matrix ---*/
     if (rank == MASTER_NODE)
     {
-      cout << "Inverting donor zone radial basis function matrix... " << endl;;
     	switch (config[donorZone]->GetKindRadialBasisFunction())
     	{
     	  /*--- Cholesky decompose for basis functions giving positive definite matrix ---*/
@@ -1616,7 +1612,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 				case GAUSSIAN:
 
 #ifdef HAVE_LAPACK
-          cout << "\twith LAPACK... " << endl;
           global_M->CalcInv_dsptri();
 #else
 					global_M->CholeskyDecompose(true);
@@ -1629,7 +1624,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 				case MULTI_QUADRIC:
 				
 #ifdef HAVE_LAPACK
-          cout << "\twith LAPACK... " << endl;
           global_M->CalcInv_dsptri();
 #else
 					global_M->LUDecompose();
@@ -1641,7 +1635,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 #ifndef HAVE_LAPACK
 	    global_M->CalcInv(true);
 #endif
-      cout << "\tDone." << endl;
     }
     
     calc_polynomial_check = new int [nDim];
@@ -1653,7 +1646,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  if ( config[donorZone]->GetRadialBasisFunctionPolynomialOption() ) {
 			  
 			  /*--- Fill P matrix and get minimum and maximum values ---*/
-//			  P_limits = new su2double [nDim*2];
 			  P = new su2double [nGlobalVertexDonor*(nDim+1)];
 			  iCount = 0;
 			  for (iProcessor=MASTER_NODE; iProcessor<nProcessor; iProcessor++)
@@ -1664,26 +1656,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 					  for (iDim=0; iDim<nDim; iDim++)
 					  {
 						  P[iCount*(nDim+1)+iDim+1] = Buffer_Receive_Coord[(iProcessor*MaxLocalVertex_Donor+iVertexDonor)*nDim + iDim];
-					
-//						  if (iCount == 0)
-//						  {
-//							  P_limits[iDim*2] = P[iCount*(nDim+1)+iDim+1];
-//							  P_limits[iDim*2+1] = P[iCount*(nDim+1)+iDim+1];
-//							  calc_polynomial_check[iDim] = 1;
-//						  }
-//						  else
-//						  {
-//							  /*--- Get minimum coordinate value ---*/
-//							  P_limits[iDim*2] = \
-//							  (P[iCount*(nDim+1)+iDim+1] < P_limits[iDim*2]) ? \
-//							  P[iCount*(nDim+1)+iDim+1] : P_limits[iDim*2];
-
-//							  /*--- Get maximum coordinate value ---*/
-//							  P_limits[iDim*2+1] = \
-//							  (P[iCount*(nDim+1)+iDim+1] > P_limits[iDim*2+1]) ? \
-//							  P[iCount*(nDim+1)+iDim+1] : P_limits[iDim*2+1];
-//						  }
-					
 					  }
 					  iCount++;
 				  }
@@ -1694,47 +1666,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 			  for (int i=1; i<nDim+1; i++) {
 			    skip_row[i] = 0;
 			  }
-			  cout << "Identifying surfaces lying on plane and discarding one polynomial term..." << endl;
 			  Check_PolynomialTerms(nDim+1, nGlobalVertexDonor, P, skip_row, calc_polynomial_check, interface_coord_tol, true, nPolynomial);
-			  cout << "\tDone." << endl;
-//			  /*--- Check for any constant coordinates which will make RBF matrix singular ---*/
-//			  nPolynomial = nDim;
-//			  for (iDim=0; iDim<nDim; iDim++)
-//			  {
-//				  if ( (P_limits[iDim*2+1]-P_limits[iDim*2]) < interface_coord_tol )
-//				  {
-//					  calc_polynomial_check[iDim] = 0;
-//					  nPolynomial--;
-//				  }
-//			  }
-//			
-//			  if (nPolynomial < nDim)
-//			  {
-//				  P_tmp = new su2double [nGlobalVertexDonor*(nPolynomial+1)];
-//				
-//				  iCount = 0;
-//				  for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
-//				  {
-//					  P_tmp[iCount] = 1;
-//					  iCount++;
-//					  for (iDim=0; iDim<nDim; iDim++)
-//					  {
-//						  if (calc_polynomial_check[iDim] == 1)
-//						  {
-//							  P_tmp[iCount] = P[iVertexDonor*(nDim+1)+iDim+1];
-//							  iCount++;
-//						  }
-//					  }
-//				  }
-//				
-//				  for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor*(nPolynomial+1); iVertexDonor++) {
-//				    P[iVertexDonor] = P_tmp[iVertexDonor];
-//				  }
-//				  delete [] P_tmp;
-//			  }
 			
         /*--- Calculate Mp ---*/
-        cout << "Calculating Mp..." << endl;
       	Mp = new CSymmetricMatrix;
       	Mp->Initialize(nPolynomial+1);
       	for (int m=0; m<nPolynomial+1; m++)
@@ -1760,11 +1694,9 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       			
       		}
       	}
-      	cout << "\tDone." << endl;
       	Mp->CalcInv(true);
       	
       	/*--- Calculate M_p*P*M_inv ---*/
-      	cout << "Calculating M_p*P*M_inv..." << endl;
       	C_inv_trunc = new su2double [(nGlobalVertexDonor+nPolynomial+1)*nGlobalVertexDonor];
       	for (int m=0; m<nPolynomial+1; m++)
       	{
@@ -1785,10 +1717,8 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 	      		C_inv_trunc[m*nGlobalVertexDonor+iVertexDonor] = val_i;
       		}  		
       	}
-      	cout << "\tDone." << endl;
       	
       	/*--- Calculate (I - P'*M_p*P*M_inv) ---*/
-      	cout << "Calculating I - P'*M_p*P*M_inv..." << endl;
       	C_tmp = new su2double [nGlobalVertexDonor*nGlobalVertexDonor];
       	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++) 
       	{
@@ -1808,17 +1738,11 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       			
       		}
       	}
-      	cout << "\tDone." << endl;
       	
       	/*--- Calculate M_inv*(I - P'*M_p*P*M_inv) ---*/
-      	cout << "Calculating M_inv*(I - P'*M_p*P*M_inv)..." << endl;
-
         global_M->MatMatMult(true, C_tmp, nGlobalVertexDonor);
-        
-        cout << "\tDone." << endl;
       	
       	/*--- Write to C_inv_trunc matrix ---*/
-      	cout << "Writing to C_inv_trunc matrix... ";
       	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
       	{
       		for (jVertexDonor=0; jVertexDonor<nGlobalVertexDonor; jVertexDonor++)
@@ -1826,7 +1750,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       			C_inv_trunc[(iVertexDonor+nPolynomial+1)*(nGlobalVertexDonor)+jVertexDonor] = C_tmp[iVertexDonor*(nGlobalVertexDonor)+jVertexDonor];
       		}
       	}
-      	cout << "\tDone." << endl;
     	} // endif RadialBasisFunction_PolynomialOption
     	
     	else {
@@ -1855,7 +1778,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 #endif
     
     /*--- Calculate H matrix ---*/
-    cout << "Rank " << rank << ": Calculating H matrix... ";
     if (config[donorZone]->GetRadialBasisFunctionPolynomialOption()) {
       target_vec = new su2double [nGlobalVertexDonor+nPolynomial+1];
     }
@@ -1912,18 +1834,14 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  		}
 		  	}
 				
-//				cout << "Rank: " << rank << ", iVertexTarget: " << iVertexTarget << ", coeff_vec: ";
 		  	iCount = 0;
 		  	for (iVertexDonor=0; iVertexDonor<nGlobalVertexDonor; iVertexDonor++)
 		  	{
-//		  	  cout << coeff_vec[iVertexDonor] << ", ";
-		  		if ( coeff_vec[iVertexDonor] != 0 ) // ( abs(coeff_vec[iVertexDonor]) > interface_coord_tol )
+		  		if ( coeff_vec[iVertexDonor] != 0 )
 		  		{
 		  			iCount++;
 		  		}
 		  	}
-//		  	cout << endl;
-//		  	cout << "Rank: " << rank << ", iVertexTarget: " << iVertexTarget << ", nDonorPoints: " << iCount << endl;
 		  	target_geometry->vertex[mark_target][iVertexTarget]->SetnDonorPoints(iCount);
 		  	target_geometry->vertex[mark_target][iVertexTarget]->Allocate_DonorInfo();
 		  	
@@ -1933,7 +1851,7 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  	{
 		  		for (iVertexDonor=0; iVertexDonor<nVertexDonorInDomain_arr[iProcessor]; iVertexDonor++)
 		  		{
-		  			if ( coeff_vec[iCount] != 0 ) // ( abs(coeff_vec[iCount]) > interface_coord_tol )
+		  			if ( coeff_vec[iCount] != 0 )
 						{
 							point_donor = Buffer_Receive_GlobalPoint[iProcessor*MaxLocalVertex_Donor+iVertexDonor];
 						  target_geometry->vertex[mark_target][iVertexTarget]->SetInterpDonorPoint(jCount, point_donor);
@@ -1947,7 +1865,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
 		  	
 		  }
 		}
-		cout << "Done." << endl;
     
     /*--- Memory management ---*/
     delete [] nVertexDonorInDomain_arr;
@@ -1966,7 +1883,6 @@ void CRadialBasisFunction::Set_TransferCoeff(CConfig **config) {
       
       if ( config[donorZone]->GetRadialBasisFunctionPolynomialOption() ) {
         delete [] skip_row;
-//        delete [] P_limits;
         delete [] P;
         delete Mp;
         delete [] C_tmp;
@@ -2075,8 +1991,6 @@ void CRadialBasisFunction::Check_PolynomialTerms(int m, unsigned long n, double 
     else {keep_row[i] = 1;}
   }
   
-  cout << "max_diff: " << max_diff << endl;
-  
   /*--- If points lie on plane ---*/
   if (max_diff < max_diff_tol)
   {
@@ -2148,19 +2062,19 @@ void CRadialBasisFunction::Check_PolynomialTerms(int m, unsigned long n, double 
     n_polynomial = n_rows;
   }
   
-  cout << "Coefficients: ";
-  for (int i = 0; i < n_rows; i ++)
-  {
-    cout << coeff[i] << ", ";
-  }
-  cout << endl;
-  
-  cout << "keep_row: ";
-  for (int i = 0; i < n_rows; i ++)
-  {
-    cout << keep_row[i] << ", ";
-  }
-  cout << endl;
+//  cout << "Coefficients: ";
+//  for (int i = 0; i < n_rows; i ++)
+//  {
+//    cout << coeff[i] << ", ";
+//  }
+//  cout << endl;
+//  
+//  cout << "keep_row: ";
+//  for (int i = 0; i < n_rows; i ++)
+//  {
+//    cout << keep_row[i] << ", ";
+//  }
+//  cout << endl;
   
   delete PPT;
   delete [] coeff;
